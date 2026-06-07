@@ -1,0 +1,19 @@
+Dein Fehler kommt nicht vom Mod-Code, sondern von der Gradle-Version:
+
+  Found Gradle version Gradle 9.5.1. Versions Gradle 9.0 and newer are not supported yet.
+
+Lösung:
+
+  ./build_gradle8.sh
+
+oder mit Info-Log:
+
+  ./build_gradle8_info.sh
+
+Das Script nutzt/installiert per SDKMAN Gradle 8.8 und baut dann mit:
+
+  gradle --no-daemon clean build
+
+Die fertige JAR liegt danach unter:
+
+  build/libs/Realistic_Block_Physics_fixer-1.0.0.jar

@@ -1,0 +1,648 @@
+ExplosionPhysicsUpdateFix – Kernfunktionen der Mod
+Für Minecraft Forge 1.20.1
+
+Ziel der Mod
+============
+
+Die Mod soll ein Problem bei der Kombination von Explosionen und Realistic Block Physics verbessern.
+
+Das beobachtete Problem:
+Nach Explosionen bleiben manchmal Blöcke in der Luft stehen, obwohl sie eigentlich durch Realistic Block Physics fallen müssten. Sobald man diese Blöcke manuell mit Linksklick antippt, aktualisiert Realistic Block Physics den Blockzustand und die Blöcke fallen. Daraus ergibt sich die Kernidee der Mod:
+
+Die Mod soll nach Explosionen automatisch prüfen, ob in der Umgebung schwebende Blöcke entstanden sind, und diese Blöcke gezielt aktualisieren. Dadurch wird Realistic Block Physics angestoßen, ohne dass ein Spieler die Blöcke manuell anklicken muss.
+
+Wichtig:
+Die Mod soll keine Explosionen selbst ersetzen, keine Blöcke künstlich zerstören und keine eigene Physik-Engine einbauen. Sie soll nur fehlende Block-Updates nach Explosionen zuverlässig auslösen.
+
+
+Grundprinzip
+============
+
+Die Mod arbeitet serverseitig.
+
+Wenn eine Explosion passiert, merkt sich die Mod die betroffenen Positionen. Danach wartet sie kurz, damit Minecraft und andere Mods die Explosion vollständig verarbeiten können. Erst danach scannt sie die Umgebung und löst gezielte Block-Updates aus.
+
+Der Ablauf ist:
+
+1. Explosion wird erkannt.
+2. Betroffene Blockpositionen werden gesammelt.
+3. Die Prüfung wird um wenige Server-Ticks verzögert.
+4. Die Umgebung der Explosion wird gescannt.
+5. Schwebende oder verdächtige Blöcke werden erkannt.
+6. Für diese Blöcke werden Block- und Nachbar-Updates ausgelöst.
+7. Realistic Block Physics reagiert darauf und kann die Blöcke fallen lassen.
+
+
+Kernfunktion 1: Explosionen zuverlässig erkennen
+===============================================
+
+Die Mod muss jede relevante Explosion erkennen, die auf dem Server passiert.
+
+Dazu gehören zum Beispiel:
+
+- TNT-Explosionen
+- Creeper-Explosionen
+- Explosionen durch Waffenmods
+- Explosionen durch SuperbWarfare
+- Explosionen durch TaCZ oder Addon-Mods
+- Explosionen durch andere Forge-Mods
+- Explosionen durch Befehle oder Custom-Entities
+
+Die Mod sollte nicht nur Vanilla-TNT beachten, sondern allgemein auf Explosionen reagieren, die Forge als Explosion verarbeitet.
+
+Wichtig ist, dass die Mod nur auf der Server-Seite arbeitet. Clientseitige Effekte, Partikel oder Sounds sind für die Funktion unwichtig. Die Weltlogik muss auf dem Server korrigiert werden.
+
+
+Kernfunktion 2: Betroffene Explosionspositionen merken
+======================================================
+
+Wenn eine Explosion erkannt wurde, merkt sich die Mod die Positionen, die von der Explosion betroffen sind.
+
+Dabei soll sie nicht sofort scannen, sondern zuerst nur Informationen sammeln.
+
+Gesammelt werden sollten:
+
+- die zentrale Position der Explosion
+- die durch die Explosion betroffenen Blockpositionen
+- direkte Nachbarpositionen der zerstörten oder veränderten Blöcke
+- optional ein kleiner zusätzlicher Bereich um die Explosion herum
+
+Warum das wichtig ist:
+Schwebende Blöcke entstehen oft nicht exakt im Zentrum der Explosion, sondern am Rand des Explosionskraters. Deshalb reicht es nicht, nur den Mittelpunkt zu prüfen. Die Mod muss auch die Umgebung der zerstörten Blöcke betrachten.
+
+
+Kernfunktion 3: Verzögerte Prüfung nach der Explosion
+=====================================================
+
+Die Mod soll nicht im selben Moment prüfen, in dem die Explosion erkannt wird.
+
+Grund:
+Während der Explosion können andere Mods noch Blöcke verändern, Entities erzeugen oder FallingBlocks spawnen. Wenn die Mod zu früh prüft, sieht sie möglicherweise noch einen Zwischenzustand der Welt.
+
+Deshalb soll die Mod die Prüfung verzögern.
+
+Empfehlung:
+
+- Standard-Verzögerung: 2 Server-Ticks
+- Einstellbarer Bereich: 1 bis 10 Server-Ticks
+
+Vorteil:
+Nach dieser kurzen Verzögerung ist die Explosion normalerweise fertig verarbeitet. Die Mod scannt dann den tatsächlichen Zustand nach der Explosion und löst Updates dort aus, wo sie wirklich gebraucht werden.
+
+
+Kernfunktion 4: Scanbereich um die Explosion
+============================================
+
+Nach der Verzögerung scannt die Mod die Umgebung der Explosion.
+
+Der Scanbereich sollte konfigurierbar sein.
+
+Empfehlung:
+
+- Standard-Scanradius: 5 Blöcke
+- Einstellbarer Bereich: 2 bis 12 Blöcke
+
+Der Scan sollte um die betroffenen Explosionsblöcke herum passieren, nicht nur um den Explosionsmittelpunkt. Dadurch werden auch seitliche Überhänge, Kraterränder und schwebende Reste besser erkannt.
+
+Die Mod sollte dabei doppelte Positionen vermeiden. Wenn mehrere betroffene Blöcke nahe beieinander liegen, dürfen Positionen nicht unnötig mehrfach geprüft werden. Das verbessert die Performance deutlich.
+
+
+Kernfunktion 5: Schwebende Blöcke erkennen
+==========================================
+
+Die Mod soll prüfen, ob ein Block möglicherweise durch Realistic Block Physics aktualisiert werden müsste.
+
+Ein Block gilt als verdächtig, wenn:
+
+- der Block selbst keine Luft ist
+- der Block kein unzerstörbarer Block ist
+- unter dem Block Luft ist
+- der Block im geladenen Weltbereich liegt
+- der Block nicht auf einer Ignorierliste steht
+
+Der wichtigste Fall ist:
+Ein normaler Block befindet sich direkt über Luft. Das ist oft genau der Zustand, bei dem Realistic Block Physics nach einem Update reagieren sollte.
+
+Die Mod sollte nicht versuchen, selbst zu entscheiden, ob der Block wirklich fallen muss. Diese Entscheidung soll Realistic Block Physics treffen. Die Fix-Mod soll nur den Update-Anstoß geben.
+
+
+Kernfunktion 6: Block-Updates auslösen
+======================================
+
+Wenn ein verdächtiger Block gefunden wurde, soll die Mod gezielt Updates auslösen.
+
+Dabei sollen folgende Dinge passieren:
+
+- der Block selbst bekommt ein Update
+- seine direkten Nachbarn bekommen ein Update
+- Minecraft wird informiert, dass der Blockzustand erneut geprüft werden soll
+- Realistic Block Physics bekommt dadurch die Möglichkeit, den Block neu zu bewerten
+
+Das soll sich möglichst ähnlich verhalten wie ein manueller Linksklick oder ein anderer kleiner Block-Update in der Nähe.
+
+Wichtig:
+Die Mod soll keinen echten Spieler-Linksklick simulieren. Das wäre unsauber, fehleranfällig und könnte mit Schutzmods, Claims oder Anti-Cheat-Systemen Probleme machen. Besser ist ein sauberer serverseitiger Block- und Nachbar-Update.
+
+
+Kernfunktion 7: Keine eigene Physik erzwingen
+=============================================
+
+Die Mod soll Blöcke nicht selbst in FallingBlocks umwandeln.
+
+Warum:
+Das wäre eine eigene Physiklogik und könnte mit Realistic Block Physics kollidieren. Außerdem könnten dadurch doppelte FallingBlocks, kaputte Blockzustände oder Item-Drops entstehen.
+
+Die Mod soll nur sagen:
+„Dieser Bereich wurde durch eine Explosion verändert, bitte prüfe die Blöcke nochmal.“
+
+Ob ein Block fällt, soll weiterhin Realistic Block Physics entscheiden.
+
+
+Kernfunktion 8: Performance-Schutz
+==================================
+
+Explosionen können sehr viele Blöcke betreffen. Deshalb braucht die Mod Schutzmechanismen gegen Lag.
+
+Wichtige Limits:
+
+1. Maximal geprüfte Blöcke pro Explosion
+   Empfehlung: 3000 Blöcke
+
+2. Maximal ausgelöste Updates pro Explosion
+   Empfehlung: 1000 bis 3000 Updates
+
+3. Maximal aktive Explosions-Scans gleichzeitig
+   Empfehlung: 20 bis 50
+
+4. Optionales Update-Budget pro Tick
+   Beispiel: nicht alle Updates in einem Tick auslösen, sondern über mehrere Ticks verteilen
+
+5. Doppelte Positionen zusammenfassen
+   Wenn mehrere Explosionen denselben Bereich betreffen, soll die Mod Positionen zusammenlegen und nicht mehrfach bearbeiten.
+
+Diese Limits sind wichtig für Server mit Waffenmods, großen TNT-Explosionen oder vielen Spielern.
+
+
+Kernfunktion 9: Mehrere Explosionen zusammenfassen
+==================================================
+
+Wenn mehrere Explosionen sehr schnell hintereinander passieren, soll die Mod nicht für jede Explosion komplett getrennt denselben Bereich scannen.
+
+Besser:
+Die Mod sammelt Explosionen, die in kurzer Zeit passieren, und verarbeitet überlappende Bereiche gemeinsam.
+
+Vorteile:
+
+- weniger doppelte Scans
+- weniger unnötige Block-Updates
+- bessere Server-Performance
+- stabileres Verhalten bei Kettenexplosionen
+
+Das ist besonders wichtig bei:
+
+- TNT-Kettenreaktionen
+- Raketenwerfern
+- Bomben aus SuperbWarfare
+- Artillerie
+- Minenfeldern
+- Explosion Overhaul ähnlichen Effekten
+
+
+Kernfunktion 10: Nur geladene Chunks bearbeiten
+===============================================
+
+Die Mod darf nur Blöcke in geladenen Chunks prüfen.
+
+Sie soll keine Chunks extra laden, nur um einen Physik-Fix auszuführen.
+
+Warum:
+Wenn Explosionen am Rand geladener Chunks passieren, könnte die Mod sonst unnötig Chunks laden und Server-Lag verursachen.
+
+Regel:
+Ist ein Chunk nicht geladen, wird die Position übersprungen.
+
+Das ist sicherer und serverfreundlicher.
+
+
+Kernfunktion 11: Ignorierliste für Blöcke
+=========================================
+
+Die Mod sollte eine Config-Liste haben, in der bestimmte Blöcke ignoriert werden können.
+
+Standardmäßig ignorieren sollte man zum Beispiel:
+
+- Bedrock
+- Barrier Blocks
+- Command Blocks
+- Structure Blocks
+- Jigsaw Blocks
+- End Portal Frames
+- End Portal Blocks
+- Nether Portal Blocks
+- Mod-Blöcke, die bekanntermaßen Probleme machen
+
+Warum:
+Einige Blöcke sollen niemals durch Physik oder Updates beeinflusst werden. Andere Mod-Blöcke haben spezielle TileEntity- oder BlockEntity-Logik und sollten nicht unnötig getriggert werden.
+
+
+Kernfunktion 12: Optionale Whitelist oder Blacklist
+===================================================
+
+Die Mod sollte zwei mögliche Betriebsarten bieten:
+
+1. Blacklist-Modus
+   Alle normalen Blöcke werden geprüft, nur bestimmte Blöcke werden ignoriert.
+
+2. Whitelist-Modus
+   Nur bestimmte Blockarten werden geprüft, zum Beispiel Stein, Erde, Sand, Holz oder Beton.
+
+Empfehlung:
+Standardmäßig sollte Blacklist-Modus aktiv sein, weil er einfacher ist und mehr Situationen automatisch abdeckt.
+
+Für große Modpacks kann Whitelist-Modus aber hilfreich sein, wenn bestimmte Mod-Blöcke Probleme verursachen.
+
+
+Kernfunktion 13: Config-Datei
+=============================
+
+Die Mod sollte eine übersichtliche Config besitzen.
+
+Sinnvolle Einstellungen:
+
+- Mod aktivieren oder deaktivieren
+- Scanradius einstellen
+- Verzögerung nach Explosion einstellen
+- maximale Blockprüfungen pro Explosion
+- maximale Updates pro Explosion
+- maximale aktive Scans gleichzeitig
+- nur geladene Chunks prüfen
+- Debug-Logging aktivieren
+- Blacklist oder Whitelist aktivieren
+- ignorierte Blöcke eintragen
+- erlaubte Blöcke eintragen
+- getrennte Einstellungen für kleine und große Explosionen
+- optionales Update-Budget pro Tick
+
+Die Config ist wichtig, weil verschiedene Modpacks unterschiedlich reagieren. Ein Waffen-Modpack braucht andere Werte als ein normales Survival-Modpack.
+
+
+Kernfunktion 14: Unterschied zwischen kleinen und großen Explosionen
+====================================================================
+
+Die Mod sollte Explosionen nach Größe behandeln können.
+
+Kleine Explosionen:
+Zum Beispiel Creeper oder einzelne TNT-Blöcke.
+
+Empfohlene Werte:
+
+- kleiner Scanradius
+- wenige Updates
+- direkte Verarbeitung nach 1 bis 2 Ticks
+
+Große Explosionen:
+Zum Beispiel Bomben, Raketen, Artillerie oder große TNT-Ketten.
+
+Empfohlene Werte:
+
+- größerer Scanradius
+- Update-Limit aktiv
+- Verarbeitung über mehrere Ticks
+- Zusammenfassung mehrerer Explosionen
+
+Dadurch bleibt die Mod auch bei starken Modpack-Explosionen stabil.
+
+
+Kernfunktion 15: Kompatibilität mit Realistic Block Physics
+===========================================================
+
+Die Mod soll Realistic Block Physics nicht ersetzen.
+
+Sie soll nur fehlende Updates erzeugen, damit Realistic Block Physics zuverlässiger reagieren kann.
+
+Das Ziel ist:
+Realistic Block Physics bleibt die eigentliche Physik-Mod. ExplosionPhysicsUpdateFix ist nur ein Helfer, der nach Explosionen fehlende Aktualisierungen nachholt.
+
+Die Mod sollte auch funktionieren, wenn Realistic Block Physics installiert ist, aber sie sollte ohne diese Mod nicht zwingend eigene Physik erzwingen.
+
+Optional:
+Wenn Realistic Block Physics nicht installiert ist, kann die Mod eine Warnung ins Log schreiben und sich trotzdem passiv verhalten.
+
+
+Kernfunktion 16: Kompatibilität mit anderen Explosion-Mods
+==========================================================
+
+Die Mod sollte möglichst allgemein funktionieren und nicht nur für Vanilla-Explosionen gebaut sein.
+
+Besonders beachten sollte man:
+
+- SuperbWarfare
+- TaCZ Addons
+- Explosion Overhaul
+- Realistic Explosion Physics
+- TNT Logic
+- andere Waffen- und Bombenmods
+
+Die Mod sollte möglichst keine eigenen Explosionsregeln setzen. Sie soll nur nach der fertigen Explosion die Umgebung aktualisieren.
+
+Dadurch ist sie weniger anfällig für Konflikte.
+
+
+Kernfunktion 17: Schutz vor Endlosschleifen
+===========================================
+
+Block-Updates können weitere Updates auslösen. Deshalb muss die Mod verhindern, dass sie sich selbst immer wieder triggert.
+
+Schutzmaßnahmen:
+
+- Eine Explosion wird nur einmal verarbeitet
+- Positionen werden pro Scan nur einmal bearbeitet
+- Updates der Mod erzeugen keinen neuen Scan
+- Es gibt ein hartes Limit für Updates
+- Alte wartende Scans werden nach einer gewissen Zeit gelöscht
+
+Das verhindert, dass der Server durch Update-Ketten überlastet wird.
+
+
+Kernfunktion 18: Debug-Logging
+==============================
+
+Die Mod sollte optional Debug-Logs schreiben können.
+
+Nützliche Debug-Informationen:
+
+- Explosion erkannt
+- Position der Explosion
+- Anzahl betroffener Blöcke
+- Anzahl geprüfter Positionen
+- Anzahl gefundener schwebender Blöcke
+- Anzahl ausgelöster Updates
+- ob Limits erreicht wurden
+- ob Chunks übersprungen wurden
+- wie viele Ticks die Verarbeitung gedauert hat
+
+Standardmäßig sollte Debug-Logging deaktiviert sein, damit die Logs nicht vollgeschrieben werden.
+
+Für Fehlersuche ist es aber sehr wichtig.
+
+
+Kernfunktion 19: Serverfreundliches Verhalten
+=============================================
+
+Die Mod sollte für Server optimiert sein.
+
+Wichtige Regeln:
+
+- nur serverseitig arbeiten
+- keine unnötigen Client-Pakete senden
+- keine Chunks laden
+- keine Entities spammen
+- keine echten Spieleraktionen simulieren
+- Limits einhalten
+- bei Fehlern nicht crashen
+- problematische Positionen überspringen
+
+Wenn ein Fehler auftritt, sollte die Mod den Fehler loggen und den Scan abbrechen, aber nicht den Server stoppen.
+
+
+Kernfunktion 20: Multiplayer-Sicherheit
+=======================================
+
+Die Mod darf keine Spielerrechte umgehen.
+
+Darum soll sie nicht wirklich „Linksklicks“ von Spielern faken.
+
+Ein simulierter Linksklick könnte Probleme verursachen mit:
+
+- Claims
+- Spawn Protection
+- Anti-Cheat
+- WorldGuard-ähnlichen Mods
+- Server-Logs
+- Permissions
+- Adventure-Modus
+- Schutzsystemen
+
+Ein serverseitiger Block-Update ist sauberer, weil er keine Spieleraktion vortäuscht.
+
+
+Kernfunktion 21: Umgang mit BlockEntities
+=========================================
+
+Manche Blöcke besitzen BlockEntities, zum Beispiel:
+
+- Kisten
+- Maschinen
+- Modded TileEntities
+- Energieleitungen
+- Kabel
+- Inventarblöcke
+
+Diese Blöcke sollten vorsichtig behandelt werden.
+
+Empfehlung:
+BlockEntities können entweder komplett ignoriert werden oder nur mit einer extra Config-Option aktualisiert werden.
+
+Standard:
+BlockEntities lieber ignorieren, um Modpack-Probleme zu vermeiden.
+
+Warum:
+Einige technische Mods reagieren empfindlich auf unnötige Updates.
+
+
+Kernfunktion 22: Umgang mit Flüssigkeiten
+=========================================
+
+Explosionen können Wasser und Lava freilegen.
+
+Die Mod sollte Flüssigkeiten nicht unnötig manipulieren.
+
+Regel:
+Wasser, Lava und andere Fluids sollen nicht direkt als Zielblock behandelt werden.
+
+Nachbar-Updates in der Nähe sind okay, aber die Mod soll keine eigene Fluid-Logik machen.
+
+
+Kernfunktion 23: Umgang mit FallingBlocks
+=========================================
+
+Wenn Realistic Block Physics bereits einen FallingBlock erzeugt hat, soll die Mod nicht zusätzlich eingreifen.
+
+Die Mod soll keine Blöcke doppelt in Bewegung setzen.
+
+Optional kann die Mod prüfen, ob in der Nähe bereits viele FallingBlocks existieren. Wenn ja, kann sie Updates reduzieren oder verzögern.
+
+Das verhindert Entity-Spam bei großen Explosionen.
+
+
+Kernfunktion 24: Saubere Reihenfolge der Verarbeitung
+=====================================================
+
+Die Mod sollte nach einer Explosion nicht sofort brutal alles aktualisieren.
+
+Besser ist diese Reihenfolge:
+
+1. Explosion erkennen
+2. Positionen sammeln
+3. kurze Verzögerung abwarten
+4. geladene Chunks prüfen
+5. verdächtige Blöcke finden
+6. doppelte Positionen entfernen
+7. Update-Limit anwenden
+8. Updates auslösen
+9. Ergebnis optional loggen
+
+Diese Reihenfolge ist stabiler und besser für Server.
+
+
+Kernfunktion 25: Konfigurierbare Intensität
+===========================================
+
+Die Mod sollte verschiedene Intensitätsstufen bieten.
+
+Beispiel:
+
+Stufe „Leicht“:
+- kleiner Radius
+- wenige Updates
+- gut für schwache Server
+
+Stufe „Normal“:
+- mittlerer Radius
+- gute Balance
+- empfohlen für die meisten Server
+
+Stufe „Stark“:
+- größerer Radius
+- mehr Updates
+- besser gegen schwebende Blöcke, aber mehr Serverlast
+
+Stufe „Extrem“:
+- großer Radius
+- hohe Limits
+- nur für Tests oder starke Server
+
+Empfohlene Standardstufe:
+Normal
+
+
+Kernfunktion 26: Sinnvolle Standardwerte
+========================================
+
+Empfohlene Standardwerte für deinen Forge-Server:
+
+- Mod aktiviert: ja
+- Verzögerung nach Explosion: 2 Ticks
+- Scanradius: 5 Blöcke
+- maximale Blockprüfungen pro Explosion: 3000
+- maximale Updates pro Explosion: 1500
+- maximale aktive Scans: 30
+- nur geladene Chunks prüfen: ja
+- BlockEntities ignorieren: ja
+- Debug-Logging: aus
+- Blacklist-Modus: aktiv
+
+Diese Werte sollten für ein modded Forge 1.20.1 Waffen-/Explosion-Modpack ein guter Startpunkt sein.
+
+
+Kernfunktion 27: Was die Mod nicht machen soll
+==============================================
+
+Die Mod soll nicht:
+
+- Explosionen stärker oder schwächer machen
+- eigene Explosionen erzeugen
+- Blöcke selbst zerstören
+- Items droppen lassen
+- FallingBlocks selbst erzwingen
+- Spieleraktionen faken
+- Claims umgehen
+- Chunks laden
+- Realistic Block Physics ersetzen
+- Explosion Overhaul ersetzen
+- Waffenmods patchen
+- Client-only Effekte bearbeiten
+
+Sie soll nur fehlende Updates nach Explosionen auslösen.
+
+
+Kernfunktion 28: Erwartetes Ergebnis im Spiel
+=============================================
+
+Nach Installation der Mod sollte Folgendes passieren:
+
+Vorher:
+Eine Explosion erzeugt einen Krater. Einige Blöcke bleiben am Rand oder über dem Krater in der Luft stehen. Erst wenn ein Spieler sie anklickt, fallen sie.
+
+Nachher:
+Eine Explosion erzeugt einen Krater. Nach einem sehr kurzen Moment prüft die Mod die Umgebung. Schwebende Blöcke werden aktualisiert. Realistic Block Physics erkennt die Situation und lässt viele dieser Blöcke automatisch fallen.
+
+Es kann trotzdem einzelne Sonderfälle geben, aber die Zuverlässigkeit sollte deutlich besser sein.
+
+
+Kernfunktion 29: Testfälle
+==========================
+
+Die Mod sollte mit mehreren Situationen getestet werden.
+
+Test 1: Einzelnes TNT
+- TNT in normalem Stein- oder Dirt-Gebiet zünden
+- prüfen, ob schwebende Blöcke am Kraterrand fallen
+
+Test 2: Mehrere TNT-Blöcke
+- kleine TNT-Kette bauen
+- prüfen, ob die Mod nicht laggt
+- prüfen, ob mehrere Explosionen sauber verarbeitet werden
+
+Test 3: SuperbWarfare Explosion
+- Rakete oder Bombe testen
+- prüfen, ob die Mod nach der Explosion Updates auslöst
+
+Test 4: TaCZ oder Waffenmod Explosion
+- Granate oder Explosivprojektil testen
+- prüfen, ob schwebende Blöcke aktualisiert werden
+
+Test 5: Große Explosion
+- große Explosion mit vielen betroffenen Blöcken testen
+- prüfen, ob Limits greifen
+- prüfen, ob der Server stabil bleibt
+
+Test 6: BlockEntities
+- Explosion neben Kisten oder Maschinen
+- prüfen, ob keine Inventare oder Maschinen kaputt aktualisiert werden
+
+Test 7: Chunkgrenze
+- Explosion am Rand geladener Chunks
+- prüfen, ob keine neuen Chunks unnötig geladen werden
+
+
+Kernfunktion 30: Mögliche spätere Erweiterungen
+===============================================
+
+Spätere Erweiterungen könnten sein:
+
+- getrennte Config pro Dimension
+- andere Werte für Nether, Overworld und End
+- Kompatibilitätsmodus für bestimmte Mods
+- Befehl zum Nachscannen eines Bereichs
+- Admin-Befehl zum Testen der Updates
+- Statistikbefehl für letzte Explosionen
+- automatische Erkennung sehr großer Explosionen
+- Update-Verteilung über mehrere Ticks
+- Visual-Debug mit Partikeln nur für Admins
+- Config-Reload ohne Serverneustart
+
+Diese Erweiterungen sind nicht zwingend nötig, aber nützlich für größere Server.
+
+
+Kurzfassung
+===========
+
+ExplosionPhysicsUpdateFix soll eine kleine serverseitige Forge-1.20.1-Hilfsmod sein.
+
+Sie erkennt Explosionen, wartet kurz, scannt die Umgebung und löst gezielte Block-Updates bei schwebenden Blöcken aus. Dadurch wird Realistic Block Physics nach Explosionen zuverlässiger angestoßen.
+
+Die Mod soll keine eigene Physik machen, keine Linksklicks faken und keine Blöcke selbst zerstören. Sie soll nur das nachholen, was normalerweise durch manuelles Anklicken oder Nachbar-Updates passieren würde.
+
+Das wichtigste Ziel ist:
+Weniger schwebende Blöcke nach Explosionen, bessere Kompatibilität mit Realistic Block Physics und möglichst geringe Serverlast.

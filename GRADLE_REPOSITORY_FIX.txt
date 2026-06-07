@@ -1,0 +1,14 @@
+Fix for:
+Could not create an instance of type net.minecraftforge.gradle.userdev.DependencyManagementExtension.
+Build was configured to prefer settings repositories over project repositories but repository 'BUNDELED_...' was added by plugin 'net.minecraftforge.gradle'
+
+Reason:
+ForgeGradle 6.x adds an internal bundled repository while it applies the plugin. The old settings.gradle blocked repositories added by project plugins through dependencyResolutionManagement/repositoriesMode.
+
+Fix:
+settings.gradle no longer contains dependencyResolutionManagement/repositoriesMode. ForgeGradle is allowed to add its required internal repository.
+
+Build:
+./build_gradle8.sh
+or:
+./build_gradle8_info.sh

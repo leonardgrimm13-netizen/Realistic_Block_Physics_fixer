@@ -1,0 +1,17 @@
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        maven { url = 'https://maven.minecraftforge.net/' }
+        mavenCentral()
+    }
+}
+
+// IMPORTANT FOR FORGEGRADLE 6.x:
+// Do not enable dependencyResolutionManagement with FAIL_ON_PROJECT_REPOS or
+// PREFER_SETTINGS here. ForgeGradle injects its own internal bundled repository
+// during plugin application. Gradle then rejects that repository when settings
+// repositories are forced, causing:
+// "repository 'BUNDELED_...' was added by plugin 'net.minecraftforge.gradle'".
+// Let ForgeGradle manage the project repositories it needs.
+
+rootProject.name = 'Realistic_Block_Physics_fixer'

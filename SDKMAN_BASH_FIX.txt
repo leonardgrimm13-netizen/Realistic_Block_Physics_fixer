@@ -1,0 +1,12 @@
+Problem:
+  Unter Ubuntu/Bash kann SDKMAN mit Scripts fehlschlagen, wenn das Script `set -u`
+  bzw. `set -euo pipefail` nutzt. Dann ist z. B. ZSH_VERSION nicht gesetzt und
+  sdkman-init.sh bricht ab.
+
+Fix in dieser Version:
+  Die Build-Scripts nutzen jetzt `set -eo pipefail` statt `set -euo pipefail`.
+  Dadurch kann SDKMAN sauber geladen werden, ohne dass der Build weniger sicher wird.
+
+Direkter Fix in einer bereits entpackten alten Version:
+  sed -i 's/set -euo pipefail/set -eo pipefail/' build.sh build_gradle8.sh build_gradle8_info.sh
+  ./build_gradle8.sh
