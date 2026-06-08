@@ -70,19 +70,22 @@ public final class ExplosionFixCoordinator {
 
         Vec3 center = getExplosionCenter(event.getExplosion()).orElse(null);
         List<BlockPos> affectedBlocks = event.getAffectedBlocks();
-        if ((affectedBlocks == null || affectedBlocks.isEmpty()) && center == null) {
+        int originalAffectedCount = affectedBlocks == null ? 0 : affectedBlocks.size();
+        if (originalAffectedCount == 0 && center == null) {
             return;
         }
 
         int maxCaptured = RBPFConfig.MAX_AFFECTED_POSITIONS_CAPTURED.get();
-        List<Long> affected = new ArrayList<>(Math.min(affectedBlocks.size(), maxCaptured));
+        List<Long> affected = new ArrayList<>(Math.min(originalAffectedCount, maxCaptured));
         int copied = 0;
-        for (BlockPos pos : affectedBlocks) {
-            if (copied >= maxCaptured) {
-                break;
+        if (affectedBlocks != null) {
+            for (BlockPos pos : affectedBlocks) {
+                if (copied >= maxCaptured) {
+                    break;
+                }
+                affected.add(pos.asLong());
+                copied++;
             }
-            affected.add(pos.asLong());
-            copied++;
         }
 
         BlockPos centerPos = center != null ? BlockPos.containing(center) : approximateCenterFromAffected(affected);
@@ -91,7 +94,7 @@ public final class ExplosionFixCoordinator {
                 level.dimension(),
                 centerPos.asLong(),
                 affected,
-                affectedBlocks.size(),
+                originalAffectedCount,
                 level.getMinBuildHeight(),
                 level.getMaxBuildHeight(),
                 level.getGameTime(),
@@ -109,7 +112,7 @@ public final class ExplosionFixCoordinator {
                     "[{}] Explosion queued: dim={}, affected={}, copied={}, dueTick={}",
                     RealisticBlockPhysicsFixer.MOD_ID,
                     level.dimension().location(),
-                    affectedBlocks.size(),
+                    originalAffectedCount,
                     copied,
                     dueTick
             );
@@ -312,12 +315,19 @@ public final class ExplosionFixCoordinator {
     private void processActiveScans(MinecraftServer server, long now) {
         int checksBudget = RBPFConfig.MAX_BLOCK_CHECKS_PER_TICK.get();
         int updatesBudget = RBPFConfig.MAX_BLOCK_UPDATES_PER_TICK.get();
-        int scansToVisit = activeScans.size();
+        int scansToVisit = Math.min(activeScans.size(), RBPFConfig.MAX_SCANS_PER_TICK.get());
 
         for (int i = 0; i < scansToVisit && checksBudget > 0 && updatesBudget > 0; i++) {
             ActiveScan scan = activeScans.pollFirst();
             if (scan == null) {
                 return;
+            }
+
+            if (now - scan.activatedTick() > RBPFConfig.MAX_SCAN_AGE_TICKS.get()) {
+                if (RBPFConfig.DEBUG_LOGGING.get()) {
+                    RealisticBlockPhysicsFixer.LOGGER.warn("[{}] Dropping stale scan in {} after {} ticks.", RealisticBlockPhysicsFixer.MOD_ID, scan.dimension().location(), now - scan.activatedTick());
+                }
+                continue;
             }
 
             ServerLevel level = server.getLevel(scan.dimension());
