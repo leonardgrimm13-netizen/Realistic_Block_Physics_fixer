@@ -1,3 +1,4 @@
 #!/usr/bin/env bash
-set -eo pipefail
-./build_gradle8.sh --info "$@"
+set -euo pipefail
+cd "$(dirname "$0")"
+./gradlew --info clean build

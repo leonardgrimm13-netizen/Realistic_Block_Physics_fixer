@@ -39,7 +39,7 @@ public final class RealisticBlockPhysicsFixer {
                 || ModList.get().isLoaded("realisticphysics")
                 || ModList.get().isLoaded("realistic_physics");
 
-        if (!detected) {
+        if (RBPFConfig.WARN_IF_REALISTIC_BLOCK_PHYSICS_MISSING.get() && !detected) {
             LOGGER.warn("Realistic Block Physics was not detected by a known mod id. "
                     + "The fixer can still run, but it only nudges block updates and does not provide its own physics.");
         }

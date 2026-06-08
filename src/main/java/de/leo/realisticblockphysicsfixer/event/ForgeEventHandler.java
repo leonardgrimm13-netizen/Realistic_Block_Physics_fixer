@@ -1,5 +1,6 @@
 package de.leo.realisticblockphysicsfixer.event;
 
+import de.leo.realisticblockphysicsfixer.RealisticBlockPhysicsFixer;
 import de.leo.realisticblockphysicsfixer.runtime.ExplosionFixCoordinator;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.level.ExplosionEvent;
@@ -16,23 +17,41 @@ public final class ForgeEventHandler {
 
     @SubscribeEvent
     public void onServerStarted(ServerStartedEvent event) {
-        coordinator.resetForServerStart();
+        try {
+            coordinator.resetForServerStart();
+        } catch (RuntimeException exception) {
+            RealisticBlockPhysicsFixer.LOGGER.error("[{}] Failed to reset runtime state on server start.", RealisticBlockPhysicsFixer.MOD_ID, exception);
+        }
     }
 
     @SubscribeEvent
     public void onExplosion(ExplosionEvent.Detonate event) {
-        coordinator.onExplosion(event);
+        try {
+            coordinator.onExplosion(event);
+        } catch (RuntimeException exception) {
+            RealisticBlockPhysicsFixer.LOGGER.error("[{}] Failed to queue explosion scan; skipping this explosion.", RealisticBlockPhysicsFixer.MOD_ID, exception);
+        }
     }
 
     @SubscribeEvent
     public void onServerTick(TickEvent.ServerTickEvent event) {
-        if (event.phase == TickEvent.Phase.END) {
+        if (event.phase != TickEvent.Phase.END) {
+            return;
+        }
+
+        try {
             coordinator.onServerTick();
+        } catch (RuntimeException exception) {
+            RealisticBlockPhysicsFixer.LOGGER.error("[{}] Failed during tick processing; pending scans remain queued where possible.", RealisticBlockPhysicsFixer.MOD_ID, exception);
         }
     }
 
     @SubscribeEvent
     public void onServerStopping(ServerStoppingEvent event) {
-        coordinator.shutdownForServerStop();
+        try {
+            coordinator.shutdownForServerStop();
+        } catch (RuntimeException exception) {
+            RealisticBlockPhysicsFixer.LOGGER.error("[{}] Failed to shut down runtime state cleanly.", RealisticBlockPhysicsFixer.MOD_ID, exception);
+        }
     }
 }

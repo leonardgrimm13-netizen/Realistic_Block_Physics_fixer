@@ -13,7 +13,7 @@ public final class BlockFilters {
     private static volatile Set<String> whitelist = Set.of();
 
     public static void refreshFromConfig() {
-        whitelistMode = RBPFConfig.WHITELIST_MODE.get();
+        whitelistMode = !RBPFConfig.WHITELIST_MODE.get();
         blacklist = normalize(RBPFConfig.BLOCK_BLACKLIST.get());
         whitelist = normalize(RBPFConfig.BLOCK_WHITELIST.get());
     }
