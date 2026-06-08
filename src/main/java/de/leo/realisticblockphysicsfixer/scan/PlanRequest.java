@@ -14,7 +14,6 @@ public record PlanRequest(
         int maxUpdates,
         int minBuildHeight,
         int maxBuildHeight,
-        int maxAsyncPlanningVolume,
         boolean largeProfile
 ) {
 }

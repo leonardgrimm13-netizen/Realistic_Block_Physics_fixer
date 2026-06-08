@@ -1,50 +1,45 @@
-# Build-Anleitung
+# Build
 
-## Wichtig
+## Requirements
 
-ForgeGradle 6.x unterstützt Gradle 9 noch nicht. Wenn dein System `gradle 9.x` nutzt, bricht der Build mit ungefähr dieser Meldung ab:
+- JDK 17 available for compilation.
+- Gradle 8.x. The project expects the standard Gradle Wrapper layout (`gradlew`, `gradlew.bat`, `gradle/wrapper/gradle-wrapper.properties`, and the maintainer-generated binary `gradle/wrapper/gradle-wrapper.jar`) configured for Gradle 8.8.
+- Network access to Maven Central, Forge Maven, Mojang metadata, and Gradle distributions for a first clean checkout.
+
+ForgeGradle 6.x is not compatible with Gradle 9. If a global Gradle 9 is installed, use this repository's `./gradlew` entrypoint instead.
+
+## Command
+
+```bash
+./gradlew clean build
+```
+
+Output:
 
 ```text
-Found Gradle version Gradle 9.x. Versions Gradle 9.0 and newer are not supported yet.
+build/libs/Realistic_Block_Physics_fixer-<version>.jar
 ```
 
-Dieses Projekt nutzt deshalb bewusst Gradle 8.8.
+## Repository notes
 
-## Empfohlener Build auf Linux mit SDKMAN
+`settings.gradle` intentionally does not enforce `RepositoriesMode.FAIL_ON_PROJECT_REPOS`, because ForgeGradle injects repositories during setup. `build.gradle` declares Forge Maven and Maven Central explicitly.
+
+## Maintainer wrapper generation
+
+Codex must not create `gradle/wrapper/gradle-wrapper.jar` as a patch. If the wrapper JAR is missing or needs to be refreshed, a maintainer should run:
 
 ```bash
-cd Realistic_Block_Physics_fixer
-./build_gradle8.sh
+gradle wrapper --gradle-version 8.8 --distribution-type bin
 ```
 
-Mit ausführlichem Log:
+After that, the official project build command remains:
 
 ```bash
-./build_gradle8_info.sh
+./gradlew clean build
 ```
 
-Die fertige Mod-JAR liegt danach hier:
+## Environment troubleshooting
 
-```text
-build/libs/Realistic_Block_Physics_fixer-1.0.0.jar
-```
-
-## Alternative
-
-Wenn du Gradle 8.8 bereits global aktivieren willst:
-
-```bash
-sdk install gradle 8.8
-sdk use gradle 8.8
-gradle --no-daemon clean build
-```
-
-Danach kannst du wieder zu deiner normalen Gradle-Version zurück:
-
-```bash
-sdk use gradle 9.5.1
-```
-
-## Java-Version
-
-Minecraft Forge 1.20.1-Modding nutzt Java 17 als Target. Es ist aber okay, den Build mit JDK 21 laufen zu lassen, solange Gradle 8.8 verwendet wird. Das Projekt setzt im `build.gradle` das Java-Toolchain-Target auf 17.
+- If Gradle cannot find Java 17, set `JAVA_HOME` to a JDK 17 installation.
+- If a proxy blocks `services.gradle.org`, Mojang, or Forge Maven, the first build cannot download Gradle/Forge/Minecraft artifacts.
+- If Gradle 9 is used accidentally, switch to `./gradlew` or install/use Gradle 8.x.

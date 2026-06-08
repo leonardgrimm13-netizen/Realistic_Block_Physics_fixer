@@ -1,0 +1,7 @@
+.gradle/
+build/
+
+# The Gradle wrapper JAR is a maintainer-generated binary. Do not exclude it
+# when the maintainer regenerates the real wrapper with:
+#   gradle wrapper --gradle-version 8.8 --distribution-type bin
+!gradle/wrapper/gradle-wrapper.jar

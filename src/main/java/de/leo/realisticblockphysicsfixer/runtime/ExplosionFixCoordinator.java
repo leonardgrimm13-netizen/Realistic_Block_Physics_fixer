@@ -31,6 +31,9 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
 public final class ExplosionFixCoordinator {
+    private static final int CHUNK_SECTION_SIZE = 16;
+    private static final int MIN_SPATIAL_MERGE_DISTANCE_BLOCKS = 32;
+
     private final List<ExplosionRecord> delayedRecords = new ArrayList<>();
     private final List<PlanningJob> planningJobs = new ArrayList<>();
     private final ArrayDeque<ActiveScan> activeScans = new ArrayDeque<>();
@@ -70,19 +73,22 @@ public final class ExplosionFixCoordinator {
 
         Vec3 center = getExplosionCenter(event.getExplosion()).orElse(null);
         List<BlockPos> affectedBlocks = event.getAffectedBlocks();
-        if ((affectedBlocks == null || affectedBlocks.isEmpty()) && center == null) {
+        int originalAffectedCount = affectedBlocks == null ? 0 : affectedBlocks.size();
+        if (originalAffectedCount == 0 && center == null) {
             return;
         }
 
         int maxCaptured = RBPFConfig.MAX_AFFECTED_POSITIONS_CAPTURED.get();
-        List<Long> affected = new ArrayList<>(Math.min(affectedBlocks.size(), maxCaptured));
+        List<Long> affected = new ArrayList<>(Math.min(originalAffectedCount, maxCaptured));
         int copied = 0;
-        for (BlockPos pos : affectedBlocks) {
-            if (copied >= maxCaptured) {
-                break;
+        if (affectedBlocks != null) {
+            for (BlockPos pos : affectedBlocks) {
+                if (copied >= maxCaptured) {
+                    break;
+                }
+                affected.add(pos.asLong());
+                copied++;
             }
-            affected.add(pos.asLong());
-            copied++;
         }
 
         BlockPos centerPos = center != null ? BlockPos.containing(center) : approximateCenterFromAffected(affected);
@@ -91,7 +97,7 @@ public final class ExplosionFixCoordinator {
                 level.dimension(),
                 centerPos.asLong(),
                 affected,
-                affectedBlocks.size(),
+                originalAffectedCount,
                 level.getMinBuildHeight(),
                 level.getMaxBuildHeight(),
                 level.getGameTime(),
@@ -109,7 +115,7 @@ public final class ExplosionFixCoordinator {
                     "[{}] Explosion queued: dim={}, affected={}, copied={}, dueTick={}",
                     RealisticBlockPhysicsFixer.MOD_ID,
                     level.dimension().location(),
-                    affectedBlocks.size(),
+                    originalAffectedCount,
                     copied,
                     dueTick
             );
@@ -231,9 +237,8 @@ public final class ExplosionFixCoordinator {
         }
 
         List<ExplosionRecord> due = new ArrayList<>();
-        long mergeWindow = RBPFConfig.MERGE_WINDOW_TICKS.get();
         delayedRecords.removeIf(record -> {
-            if (record.dueTick() <= now + mergeWindow) {
+            if (record.dueTick() <= now) {
                 due.add(record);
                 return true;
             }
@@ -249,22 +254,73 @@ public final class ExplosionFixCoordinator {
             byDimension.computeIfAbsent(record.dimension(), ignored -> new ArrayList<>()).add(record);
         }
 
+        int mergeWindow = RBPFConfig.MERGE_WINDOW_TICKS.get();
         for (Map.Entry<ResourceKey<Level>, List<ExplosionRecord>> entry : byDimension.entrySet()) {
-            if (planningJobs.size() >= RBPFConfig.MAX_PLANNING_JOBS.get()) {
-                // Put remaining records back instead of silently losing them.
-                delayedRecords.addAll(entry.getValue());
-                continue;
-            }
-
             ServerLevel level = server.getLevel(entry.getKey());
             if (level == null) {
                 continue;
             }
 
-            PlanRequest request = mergeRecordsIntoPlanRequest(entry.getKey(), entry.getValue(), level);
-            CompletableFuture<ScanPlan> future = planner.planAsync(request);
-            planningJobs.add(new PlanningJob(future, now));
+            for (List<ExplosionRecord> cluster : clusterSpatially(entry.getValue(), mergeWindow)) {
+                if (planningJobs.size() >= RBPFConfig.MAX_PLANNING_JOBS.get()) {
+                    delayedRecords.addAll(cluster);
+                    continue;
+                }
+
+                PlanRequest request = mergeRecordsIntoPlanRequest(entry.getKey(), cluster, level);
+                CompletableFuture<ScanPlan> future = planner.planAsync(request);
+                planningJobs.add(new PlanningJob(future, now));
+            }
         }
+    }
+
+    private static List<List<ExplosionRecord>> clusterSpatially(List<ExplosionRecord> records, int mergeWindowTicks) {
+        records.sort(Comparator.comparingLong(ExplosionRecord::createdTick));
+        List<List<ExplosionRecord>> clusters = new ArrayList<>();
+        for (ExplosionRecord record : records) {
+            List<ExplosionRecord> matchingCluster = null;
+            for (List<ExplosionRecord> cluster : clusters) {
+                if (canMergeIntoCluster(record, cluster, mergeWindowTicks)) {
+                    matchingCluster = cluster;
+                    break;
+                }
+            }
+
+            if (matchingCluster == null) {
+                matchingCluster = new ArrayList<>();
+                clusters.add(matchingCluster);
+            }
+            matchingCluster.add(record);
+        }
+        return clusters;
+    }
+
+    private static boolean canMergeIntoCluster(ExplosionRecord record, List<ExplosionRecord> cluster, int mergeWindowTicks) {
+        for (ExplosionRecord existing : cluster) {
+            if (Math.abs(record.createdTick() - existing.createdTick()) > mergeWindowTicks) {
+                continue;
+            }
+            if (isSpatiallyClose(record.center(), existing.center())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isSpatiallyClose(long firstCenter, long secondCenter) {
+        int firstChunkX = Math.floorDiv(BlockPos.getX(firstCenter), CHUNK_SECTION_SIZE);
+        int firstChunkZ = Math.floorDiv(BlockPos.getZ(firstCenter), CHUNK_SECTION_SIZE);
+        int secondChunkX = Math.floorDiv(BlockPos.getX(secondCenter), CHUNK_SECTION_SIZE);
+        int secondChunkZ = Math.floorDiv(BlockPos.getZ(secondCenter), CHUNK_SECTION_SIZE);
+        if (Math.abs(firstChunkX - secondChunkX) <= 1 && Math.abs(firstChunkZ - secondChunkZ) <= 1) {
+            return true;
+        }
+
+        int threshold = Math.max(MIN_SPATIAL_MERGE_DISTANCE_BLOCKS, (RBPFConfig.LARGE_SCAN_RADIUS.get() * 2) + CHUNK_SECTION_SIZE);
+        long dx = (long) BlockPos.getX(firstCenter) - BlockPos.getX(secondCenter);
+        long dy = (long) BlockPos.getY(firstCenter) - BlockPos.getY(secondCenter);
+        long dz = (long) BlockPos.getZ(firstCenter) - BlockPos.getZ(secondCenter);
+        return dx * dx + dy * dy + dz * dz <= (long) threshold * threshold;
     }
 
     private PlanRequest mergeRecordsIntoPlanRequest(ResourceKey<Level> dimension, List<ExplosionRecord> records, ServerLevel level) {
@@ -304,7 +360,6 @@ public final class ExplosionFixCoordinator {
                 maxUpdates,
                 level.getMinBuildHeight(),
                 level.getMaxBuildHeight(),
-                RBPFConfig.MAX_ASYNC_PLANNING_VOLUME.get(),
                 large
         );
     }
@@ -312,12 +367,19 @@ public final class ExplosionFixCoordinator {
     private void processActiveScans(MinecraftServer server, long now) {
         int checksBudget = RBPFConfig.MAX_BLOCK_CHECKS_PER_TICK.get();
         int updatesBudget = RBPFConfig.MAX_BLOCK_UPDATES_PER_TICK.get();
-        int scansToVisit = activeScans.size();
+        int scansToVisit = Math.min(activeScans.size(), RBPFConfig.MAX_SCANS_PER_TICK.get());
 
         for (int i = 0; i < scansToVisit && checksBudget > 0 && updatesBudget > 0; i++) {
             ActiveScan scan = activeScans.pollFirst();
             if (scan == null) {
                 return;
+            }
+
+            if (now - scan.activatedTick() > RBPFConfig.MAX_SCAN_AGE_TICKS.get()) {
+                if (RBPFConfig.DEBUG_LOGGING.get()) {
+                    RealisticBlockPhysicsFixer.LOGGER.warn("[{}] Dropping stale scan in {} after {} ticks.", RealisticBlockPhysicsFixer.MOD_ID, scan.dimension().location(), now - scan.activatedTick());
+                }
+                continue;
             }
 
             ServerLevel level = server.getLevel(scan.dimension());
