@@ -3,5 +3,4 @@ build/
 out/
 *.log
 
-# Wichtig: echter Gradle Wrapper darf committed werden
 !gradle/wrapper/gradle-wrapper.jar

@@ -61,14 +61,7 @@ public final class ScanPlanner {
             return new ScanPlan(request.dimension(), request.center(), List.of(), request.scanRadius(), request.maxUpdates(), request.largeProfile());
         }
 
-        CandidateBounds bounds = CandidateBounds.fromSeeds(request.seeds(), request.center(), request.scanRadius(), request.minBuildHeight(), request.maxBuildHeight());
-        List<Long> candidates;
-
-        if (bounds.volume() <= request.maxAsyncPlanningVolume()) {
-            candidates = generateFromBoundingBox(request, bounds);
-        } else {
-            candidates = generateFromSeeds(request);
-        }
+        List<Long> candidates = generateFromSeeds(request);
 
         return new ScanPlan(
                 request.dimension(),
@@ -78,25 +71,6 @@ public final class ScanPlanner {
                 request.maxUpdates(),
                 request.largeProfile()
         );
-    }
-
-    private static List<Long> generateFromBoundingBox(PlanRequest request, CandidateBounds bounds) {
-        ArrayList<Long> all = new ArrayList<>((int) Math.min(bounds.volume(), request.maxAsyncPlanningVolume()));
-
-        for (int x = bounds.minX(); x <= bounds.maxX(); x++) {
-            for (int y = bounds.minY(); y <= bounds.maxY(); y++) {
-                for (int z = bounds.minZ(); z <= bounds.maxZ(); z++) {
-                    all.add(BlockPos.asLong(x, y, z));
-                }
-            }
-        }
-
-        all.sort(Comparator.comparingLong(pos -> distanceSq(pos, request.center())));
-
-        if (all.size() > request.maxCandidates()) {
-            return new ArrayList<>(all.subList(0, request.maxCandidates()));
-        }
-        return all;
     }
 
     private static List<Long> generateFromSeeds(PlanRequest request) {

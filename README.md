@@ -46,12 +46,13 @@ The output JAR is written to:
 build/libs/Realistic_Block_Physics_fixer-<version>.jar
 ```
 
-ForgeGradle 6.x is not Gradle-9-ready. Do not build this project with Gradle 9; use the checked-in `./gradlew` entrypoint or another Gradle 8.x installation.
+ForgeGradle 6.x is not Gradle-9-ready. Do not build this project with Gradle 9; use the checked-in `./gradlew` entrypoint or another Gradle 8.x installation. The wrapper JAR is a maintainer-generated binary; if it is missing, regenerate it with `gradle wrapper --gradle-version 8.8 --distribution-type bin`, then use `./gradlew clean build`.
 
 ## Important config values
 
 - `enabled=true`
 - `warnIfRealisticBlockPhysicsMissing=true`
+- `asyncPlanningEnabled=true`
 - `delayTicks=2` (range 1-10)
 - `smallScanRadius=5` (range 2-12)
 - `maxBlockChecksPerScan=3000`

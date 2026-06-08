@@ -3,8 +3,8 @@
 ## Runtime pipeline
 
 1. `ForgeEventHandler` catches `ExplosionEvent.Detonate` and server ticks with crash-safe wrappers.
-2. `ExplosionFixCoordinator` copies immutable explosion data (`BlockPos.asLong` values), applies delay/queue limits, merges due work per dimension, and enforces per-tick budgets.
-3. `ScanPlanner` turns copied coordinates into deduplicated scan candidates. Async planning is disabled by default; when enabled it only processes primitive coordinate data and never touches Minecraft world objects.
+2. `ExplosionFixCoordinator` copies immutable explosion data (`BlockPos.asLong` values), applies delay/queue limits, clusters only already-due nearby explosions per dimension, and enforces per-tick budgets.
+3. `ScanPlanner` turns copied coordinates into deduplicated scan candidates. Async planning is enabled by default and only processes primitive coordinate data; it never touches Minecraft world objects.
 4. `ActiveScan` checks candidates incrementally on the server thread.
 5. `FloatingBlockDetector` applies world-state checks: loaded chunk, bounds, non-air, non-fluid, not unbreakable, block entity policy, block filter, and weak/missing support below.
 6. `PhysicsUpdateDispatcher` dispatches block and neighbor updates without changing states, creating drops, spawning entities, or faking players.

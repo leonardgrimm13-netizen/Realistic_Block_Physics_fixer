@@ -28,7 +28,6 @@ public final class RBPFConfig {
     public static final ForgeConfigSpec.IntValue MAX_SCANS_PER_TICK;
     public static final ForgeConfigSpec.IntValue MAX_SCAN_AGE_TICKS;
     public static final ForgeConfigSpec.IntValue MAX_PLANNING_JOBS;
-    public static final ForgeConfigSpec.IntValue MAX_ASYNC_PLANNING_VOLUME;
 
     public static final ForgeConfigSpec.IntValue MAX_BLOCK_CHECKS_PER_TICK;
     public static final ForgeConfigSpec.IntValue MAX_BLOCK_UPDATES_PER_TICK;
@@ -41,7 +40,7 @@ public final class RBPFConfig {
     public static final ForgeConfigSpec.BooleanValue TREAT_REPLACEABLE_BELOW_AS_UNSUPPORTED;
     public static final ForgeConfigSpec.BooleanValue TREAT_NO_COLLISION_BELOW_AS_UNSUPPORTED;
 
-    public static final ForgeConfigSpec.BooleanValue WHITELIST_MODE;
+    public static final ForgeConfigSpec.BooleanValue BLACKLIST_MODE;
     public static final ForgeConfigSpec.ConfigValue<List<? extends String>> BLOCK_BLACKLIST;
     public static final ForgeConfigSpec.ConfigValue<List<? extends String>> BLOCK_WHITELIST;
 
@@ -61,7 +60,7 @@ public final class RBPFConfig {
         ASYNC_PLANNING_ENABLED = builder.comment(
                 "If true, candidate position planning runs on a small daemon worker. "
                         + "World access still always stays on the server thread."
-        ).define("asyncPlanningEnabled", false);
+        ).define("asyncPlanningEnabled", true);
         DELAY_TICKS = builder.comment("Ticks to wait after an explosion before scanning.")
                 .defineInRange("delayTicks", 2, 1, 10);
         MERGE_WINDOW_TICKS = builder.comment(
@@ -101,9 +100,6 @@ public final class RBPFConfig {
                 .defineInRange("maxScanAgeTicks", 200, 20, 6000);
         MAX_PLANNING_JOBS = builder.comment("Max async planning jobs waiting/running at once.")
                 .defineInRange("maxPlanningJobs", 4, 1, 32);
-        MAX_ASYNC_PLANNING_VOLUME = builder.comment(
-                "If an inflated bounding box is bigger than this volume, planner switches to seed-based capped generation."
-        ).defineInRange("maxAsyncPlanningVolume", 250000, 1000, 5000000);
         MAX_BLOCK_CHECKS_PER_TICK = builder.comment("Global block-state checks budget per server tick.")
                 .defineInRange("maxPositionsCheckedPerTick", 6000, 10, 50000);
         MAX_BLOCK_UPDATES_PER_TICK = builder.comment("Global block/neighbor update target budget per server tick.")
@@ -128,7 +124,7 @@ public final class RBPFConfig {
         TREAT_NO_COLLISION_BELOW_AS_UNSUPPORTED = builder.comment(
                 "Treat no-collision blocks below the target as unsupported."
         ).define("treatNoCollisionBelowAsUnsupported", true);
-        WHITELIST_MODE = builder.comment(
+        BLACKLIST_MODE = builder.comment(
                 "True = blacklist mode. False = only blocks in blockWhitelist can be targeted."
         ).define("blacklistMode", true);
         BLOCK_BLACKLIST = builder.comment("Blocks that should never be targeted by the fixer.")

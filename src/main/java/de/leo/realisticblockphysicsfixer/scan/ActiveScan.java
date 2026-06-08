@@ -82,45 +82,58 @@ public final class ActiveScan {
         int checksUsed = 0;
         int updatesUsed = 0;
 
-        while (updatesUsed < updateBudget && !pendingUpdates.isEmpty()) {
+        while (checksUsed < checkBudget
+                && updatesUsed < updateBudget
+                && !pendingUpdates.isEmpty()
+                && updatedCount < plan.maxUpdates()) {
             long packed = pendingUpdates.removeFirst();
-            if (tryApplyUpdate(level, recentUpdates, now, packed)) {
+            CheckResult result = checkSuspicious(level, packed);
+            checksUsed += result.checksUsed();
+            if (result.suspicious() && dispatchIfAllowed(level, recentUpdates, now, packed)) {
                 updatesUsed++;
             }
         }
 
         while (checksUsed < checkBudget
-                && updatesUsed < updateBudget
                 && candidateIndex < candidates.size()
                 && updatedCount < plan.maxUpdates()) {
             long packed = candidates.get(candidateIndex++);
-            BlockPos pos = BlockPos.of(packed);
-            checksUsed++;
-            checkedCount++;
-
-            if (RBPFConfig.LOADED_CHUNKS_ONLY.get() && !level.hasChunkAt(pos)) {
-                skippedUnloadedCount++;
+            CheckResult result = checkSuspicious(level, packed);
+            checksUsed += result.checksUsed();
+            if (!result.suspicious()) {
                 continue;
             }
 
-            if (!FloatingBlockDetector.shouldUpdate(level, pos)) {
+            if (updatesUsed < updateBudget) {
+                if (dispatchIfAllowed(level, recentUpdates, now, packed)) {
+                    updatesUsed++;
+                }
                 continue;
             }
 
-            suspiciousCount++;
-            if (tryApplyUpdate(level, recentUpdates, now, packed)) {
-                updatesUsed++;
-            } else if (pendingUpdates.size() < RBPFConfig.MAX_PENDING_UPDATES_PER_SCAN.get()) {
-                pendingUpdates.addLast(packed);
-            } else {
-                droppedPendingUpdateCount++;
-            }
+            queuePendingUpdate(packed);
         }
 
         return new TickResult(checksUsed, updatesUsed);
     }
 
-    private boolean tryApplyUpdate(ServerLevel level, RecentUpdateCache recentUpdates, long now, long packed) {
+    private CheckResult checkSuspicious(ServerLevel level, long packed) {
+        BlockPos pos = BlockPos.of(packed);
+        if (RBPFConfig.LOADED_CHUNKS_ONLY.get() && !level.hasChunkAt(pos)) {
+            skippedUnloadedCount++;
+            return CheckResult.NO_CHECK_NOT_SUSPICIOUS;
+        }
+
+        checkedCount++;
+        if (!FloatingBlockDetector.shouldUpdate(level, pos)) {
+            return CheckResult.CHECKED_NOT_SUSPICIOUS;
+        }
+
+        suspiciousCount++;
+        return CheckResult.CHECKED_SUSPICIOUS;
+    }
+
+    private boolean dispatchIfAllowed(ServerLevel level, RecentUpdateCache recentUpdates, long now, long packed) {
         if (updatedCount >= plan.maxUpdates()) {
             return false;
         }
@@ -130,19 +143,17 @@ public final class ActiveScan {
             return false;
         }
 
-        BlockPos pos = BlockPos.of(packed);
-        if (RBPFConfig.LOADED_CHUNKS_ONLY.get() && !level.hasChunkAt(pos)) {
-            skippedUnloadedCount++;
-            return false;
-        }
-
-        if (!FloatingBlockDetector.shouldUpdate(level, pos)) {
-            return false;
-        }
-
-        PhysicsUpdateDispatcher.trigger(level, pos);
+        PhysicsUpdateDispatcher.trigger(level, BlockPos.of(packed));
         updatedCount++;
         return true;
+    }
+
+    private void queuePendingUpdate(long packed) {
+        if (pendingUpdates.size() < RBPFConfig.MAX_PENDING_UPDATES_PER_SCAN.get()) {
+            pendingUpdates.addLast(packed);
+        } else {
+            droppedPendingUpdateCount++;
+        }
     }
 
     public boolean isFinished() {
@@ -154,5 +165,11 @@ public final class ActiveScan {
     }
 
     public record TickResult(int checksUsed, int updatesUsed) {
+    }
+
+    private record CheckResult(int checksUsed, boolean suspicious) {
+        private static final CheckResult NO_CHECK_NOT_SUSPICIOUS = new CheckResult(0, false);
+        private static final CheckResult CHECKED_NOT_SUSPICIOUS = new CheckResult(1, false);
+        private static final CheckResult CHECKED_SUSPICIOUS = new CheckResult(1, true);
     }
 }
