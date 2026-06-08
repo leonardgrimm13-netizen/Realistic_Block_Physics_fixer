@@ -1,9 +1,9 @@
-package de.leo.realisticblockphysicsfixer.scan;
+package de.leo.realisticblockphysicsfixer.fixes.explosion;
 
 import de.leo.realisticblockphysicsfixer.config.RBPFConfig;
-import de.leo.realisticblockphysicsfixer.detect.FloatingBlockDetector;
-import de.leo.realisticblockphysicsfixer.update.PhysicsUpdateDispatcher;
-import de.leo.realisticblockphysicsfixer.update.RecentUpdateCache;
+import de.leo.realisticblockphysicsfixer.fixes.explosion.FloatingBlockDetector;
+import de.leo.realisticblockphysicsfixer.fixes.explosion.PhysicsUpdateDispatcher;
+import de.leo.realisticblockphysicsfixer.fixes.explosion.RecentUpdateCache;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
@@ -14,7 +14,7 @@ import net.minecraft.world.phys.AABB;
 import java.util.ArrayDeque;
 import java.util.List;
 
-public final class ActiveScan {
+public final class ExplosionScanner {
     private final ScanPlan plan;
     private final List<Long> candidates;
     private final ArrayDeque<Long> pendingUpdates = new ArrayDeque<>();
@@ -28,7 +28,7 @@ public final class ActiveScan {
     private int skippedDuplicateCount;
     private int droppedPendingUpdateCount;
 
-    public ActiveScan(ScanPlan plan, long activatedTick) {
+    public ExplosionScanner(ScanPlan plan, long activatedTick) {
         this.plan = plan;
         this.candidates = plan.candidates();
         this.activatedTick = activatedTick;

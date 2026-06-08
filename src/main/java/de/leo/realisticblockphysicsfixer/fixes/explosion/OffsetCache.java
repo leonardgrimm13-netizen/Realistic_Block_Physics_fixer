@@ -1,4 +1,4 @@
-package de.leo.realisticblockphysicsfixer.scan;
+package de.leo.realisticblockphysicsfixer.fixes.explosion;
 
 import java.util.ArrayList;
 import java.util.Comparator;

@@ -1,4 +1,4 @@
-package de.leo.realisticblockphysicsfixer.filter;
+package de.leo.realisticblockphysicsfixer.util;
 
 import de.leo.realisticblockphysicsfixer.config.RBPFConfig;
 import net.minecraft.resources.ResourceLocation;
@@ -7,7 +7,7 @@ import java.util.HashSet;
 import java.util.Locale;
 import java.util.Set;
 
-public final class BlockFilters {
+public final class BlockIdUtil {
     private static volatile boolean whitelistMode;
     private static volatile Set<String> blacklist = Set.of();
     private static volatile Set<String> whitelist = Set.of();
@@ -41,6 +41,6 @@ public final class BlockFilters {
         return id.trim().toLowerCase(Locale.ROOT);
     }
 
-    private BlockFilters() {
+    private BlockIdUtil() {
     }
 }

@@ -2,8 +2,11 @@ package de.leo.realisticblockphysicsfixer;
 
 import com.mojang.logging.LogUtils;
 import de.leo.realisticblockphysicsfixer.config.RBPFConfig;
-import de.leo.realisticblockphysicsfixer.event.ForgeEventHandler;
-import de.leo.realisticblockphysicsfixer.runtime.ExplosionFixCoordinator;
+import de.leo.realisticblockphysicsfixer.core.FixContext;
+import de.leo.realisticblockphysicsfixer.core.FixModuleRegistry;
+import de.leo.realisticblockphysicsfixer.core.RateLimitedLogger;
+import de.leo.realisticblockphysicsfixer.core.ServerTickScheduler;
+import de.leo.realisticblockphysicsfixer.fixes.explosion.ExplosionPhysicsUpdateFixModule;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.fml.ModList;
 import net.minecraftforge.fml.ModLoadingContext;
@@ -16,7 +19,7 @@ public final class RealisticBlockPhysicsFixer {
     public static final String MOD_ID = "realistic_block_physics_fixer";
     public static final Logger LOGGER = LogUtils.getLogger();
 
-    private final ExplosionFixCoordinator coordinator;
+    private final FixModuleRegistry moduleRegistry;
 
     public RealisticBlockPhysicsFixer() {
         ModLoadingContext.get().registerConfig(
@@ -25,15 +28,21 @@ public final class RealisticBlockPhysicsFixer {
                 MOD_ID + "-server.toml"
         );
 
-        this.coordinator = new ExplosionFixCoordinator();
-        MinecraftForge.EVENT_BUS.register(new ForgeEventHandler(this.coordinator));
+        RateLimitedLogger rateLimitedLogger = new RateLimitedLogger(LOGGER);
+        this.moduleRegistry = new FixModuleRegistry(new FixContext(MOD_ID, LOGGER, rateLimitedLogger));
+        registerModules(moduleRegistry);
 
-        LOGGER.info("{} loaded for Forge 1.20.1.", MOD_ID);
+        MinecraftForge.EVENT_BUS.register(new ServerTickScheduler(moduleRegistry));
+
+        LOGGER.info("{} loaded for Forge 1.20.1 with {} fix module(s).", MOD_ID, moduleRegistry.modules().size());
         warnIfRealisticBlockPhysicsIsNotDetected();
     }
 
+    private static void registerModules(FixModuleRegistry registry) {
+        registry.register(new ExplosionPhysicsUpdateFixModule());
+    }
+
     private static void warnIfRealisticBlockPhysicsIsNotDetected() {
-        // The exact mod id can differ between releases/forks, so this is only a helpful warning.
         boolean detected = ModList.get().isLoaded("realisticblockphysics")
                 || ModList.get().isLoaded("realistic_block_physics")
                 || ModList.get().isLoaded("realisticphysics")

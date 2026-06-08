@@ -1,4 +1,4 @@
-package de.leo.realisticblockphysicsfixer.scan;
+package de.leo.realisticblockphysicsfixer.fixes.explosion;
 
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.Level;

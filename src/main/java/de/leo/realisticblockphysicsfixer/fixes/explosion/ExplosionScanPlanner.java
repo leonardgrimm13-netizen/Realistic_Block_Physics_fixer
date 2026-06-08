@@ -1,4 +1,4 @@
-package de.leo.realisticblockphysicsfixer.scan;
+package de.leo.realisticblockphysicsfixer.fixes.explosion;
 
 import de.leo.realisticblockphysicsfixer.RealisticBlockPhysicsFixer;
 import de.leo.realisticblockphysicsfixer.config.RBPFConfig;
@@ -14,7 +14,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
 
-public final class ScanPlanner {
+public final class ExplosionScanPlanner {
     private static final AtomicInteger THREAD_COUNTER = new AtomicInteger();
 
     private ExecutorService executor;
