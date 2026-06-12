@@ -1,0 +1,4 @@
+package de.leo.realisticblockphysicsfixer.fixes.template;
+
+// Documentation-only example. Rename to .java and register it in RealisticBlockPhysicsFixer
+// after adding config, budgets, stats, and server-thread-safe event/tick handling.

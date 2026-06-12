@@ -1,53 +1,69 @@
-# Testing plan
+# Testing
 
-Run these tests on a dedicated Forge 1.20.1 server with the target modpack.
+## Build test
 
-## Single TNT
+Run:
 
-1. Place TNT near sand/gravel/unsupported terrain.
-2. Ignite TNT.
-3. Confirm a scan is queued after `delayTicks` and unsupported blocks receive updates.
+```bash
+./gradlew clean build
+```
 
-## TNT chain
+Expected: build succeeds with Java 17, Gradle Wrapper 8.8, and ForgeGradle 6.x.
 
-1. Build a chain of TNT in terrain with overhangs.
-2. Watch TPS/MSPT.
-3. Confirm duplicate work is reduced and the server does not freeze.
+## Server start test
 
-## Large explosion
+1. Put the built jar in a Forge 1.20.1 dedicated server `mods/` folder.
+2. Start the server.
+3. Confirm the log says RBPF loaded and registered modules.
+4. Confirm `config/realistic_block_physics_fixer-server.toml` is generated.
 
-1. Use a controlled large explosion from the pack.
-2. Confirm queue limits and max scan/update budgets prevent a large single-tick spike.
+## Explosion fix test
 
-## SuperbWarfare explosion
+1. Install Realistic Block Physics and RBPF.
+2. Create a controlled explosion near unsupported blocks.
+3. Confirm the explosion fix queues work after `ExplosionEvent.Detonate`.
+4. Confirm scans do not run before `modules.explosion.delayTicks`.
+5. Confirm only loaded chunks are checked.
+6. Confirm suspicious blocks receive updates and are re-evaluated by the physics mod.
+7. Confirm RBPF does not spawn FallingBlocks, destroy blocks, or simulate player actions.
 
-1. Trigger a representative SuperbWarfare explosive.
-2. Confirm Forge explosion events produce delayed scans and no chunks are force-loaded.
+## Config test
 
-## TaCZ/Addons explosion
+Test these cases:
 
-1. Trigger a representative explosive projectile/grenade.
-2. Confirm affected areas are scanned if Forge reports affected blocks or a center.
+- `general.modEnabled=false` disables all expensive module work.
+- `modules.explosion.enabled=false` disables explosion work only.
+- `modules.explosion.onlyLoadedChunks=true` avoids chunk loading.
+- blacklist/whitelist entries affect targeted blocks.
+- `debug.debugLogging=false` suppresses verbose logs.
 
-## BlockEntity test
+## Command test
 
-1. Place chests/machines/cables near an explosion area.
-2. With `ignoreBlockEntities=true`, confirm block entities are not directly targeted.
+As an admin (permission level 2+), run:
 
-## Chunk-boundary test
+```text
+/rbpf status
+/rbpf modules
+/rbpf debug on
+/rbpf debug off
+/rbpf explosion stats
+```
 
-1. Trigger explosions near loaded/unloaded chunk edges.
-2. Confirm unloaded chunks are skipped and not loaded by the fixer.
+As a normal player, confirm the commands are unavailable.
 
-## Server stress test
+## Performance test
 
-1. Install Spark or equivalent profiler.
-2. Run TNT-chain and weapon-mod scenarios.
-3. Track TPS/MSPT, log spam, queue drops, and config budget suitability.
+Use Spark, timings, or MSPT monitoring:
 
-## Regression checks
+1. Trigger several explosions.
+2. Observe that work is spread across ticks.
+3. Lower budgets and confirm work is deferred/dropped instead of freezing the server.
+4. Confirm warnings are rate-limited.
 
-- No fake player or player interaction is created.
-- No FallingBlock entities are spawned by this mod.
-- No `setBlock` is used to force state changes.
-- Debug logs remain quiet unless `debugLogging=true`.
+## Disabled-module test
+
+Set `modules.explosion.enabled=false`, restart or reload as appropriate, trigger explosions, then confirm:
+
+- no explosion scans are queued,
+- `/rbpf modules` reports the module disabled,
+- `/rbpf explosion stats` counters do not increase from disabled explosions.

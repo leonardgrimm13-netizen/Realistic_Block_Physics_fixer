@@ -1,7 +1,7 @@
-package de.leo.realisticblockphysicsfixer.detect;
+package de.leo.realisticblockphysicsfixer.fixes.explosion;
 
 import de.leo.realisticblockphysicsfixer.config.RBPFConfig;
-import de.leo.realisticblockphysicsfixer.filter.BlockFilters;
+import de.leo.realisticblockphysicsfixer.util.BlockIdUtil;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
@@ -29,7 +29,7 @@ public final class FloatingBlockDetector {
         }
 
         ResourceLocation blockId = ForgeRegistries.BLOCKS.getKey(state.getBlock());
-        if (blockId == null || !BlockFilters.isAllowed(blockId)) {
+        if (blockId == null || !BlockIdUtil.isAllowed(blockId)) {
             return false;
         }
 

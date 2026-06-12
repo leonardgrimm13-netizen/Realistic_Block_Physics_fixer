@@ -1,4 +1,4 @@
-package de.leo.realisticblockphysicsfixer.update;
+package de.leo.realisticblockphysicsfixer.fixes.explosion;
 
 import de.leo.realisticblockphysicsfixer.config.RBPFConfig;
 import net.minecraft.core.BlockPos;

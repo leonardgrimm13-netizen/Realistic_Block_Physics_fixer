@@ -1,15 +1,10 @@
-package de.leo.realisticblockphysicsfixer.runtime;
+package de.leo.realisticblockphysicsfixer.fixes.explosion;
 
 import de.leo.realisticblockphysicsfixer.RealisticBlockPhysicsFixer;
 import de.leo.realisticblockphysicsfixer.config.RBPFConfig;
-import de.leo.realisticblockphysicsfixer.filter.BlockFilters;
-import de.leo.realisticblockphysicsfixer.scan.ActiveScan;
-import de.leo.realisticblockphysicsfixer.scan.ExplosionRecord;
-import de.leo.realisticblockphysicsfixer.scan.PlanRequest;
-import de.leo.realisticblockphysicsfixer.scan.PlanningJob;
-import de.leo.realisticblockphysicsfixer.scan.ScanPlan;
-import de.leo.realisticblockphysicsfixer.scan.ScanPlanner;
-import de.leo.realisticblockphysicsfixer.update.RecentUpdateCache;
+import de.leo.realisticblockphysicsfixer.debug.DebugStats;
+import de.leo.realisticblockphysicsfixer.debug.ModuleStats;
+import de.leo.realisticblockphysicsfixer.util.BlockIdUtil;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
@@ -18,7 +13,6 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.Explosion;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.event.level.ExplosionEvent;
-import net.minecraftforge.server.ServerLifecycleHooks;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -36,13 +30,19 @@ public final class ExplosionFixCoordinator {
 
     private final List<ExplosionRecord> delayedRecords = new ArrayList<>();
     private final List<PlanningJob> planningJobs = new ArrayList<>();
-    private final ArrayDeque<ActiveScan> activeScans = new ArrayDeque<>();
-    private final ScanPlanner planner = new ScanPlanner();
+    private final ArrayDeque<ExplosionScanner> activeScans = new ArrayDeque<>();
+    private final ExplosionScanPlanner planner = new ExplosionScanPlanner();
     private final RecentUpdateCache recentUpdates = new RecentUpdateCache();
 
     private long droppedExplosionRecords;
     private long droppedPlans;
+    private long droppedDueToBudget;
     private long lastFilterRefreshTick = -1L;
+    private long lastRunTick = -1L;
+    private long totalRuns;
+    private long totalErrors;
+    private String lastErrorMessage = "";
+    private final DebugStats debugStats = new DebugStats();
 
     public void resetForServerStart() {
         delayedRecords.clear();
@@ -52,7 +52,13 @@ public final class ExplosionFixCoordinator {
         planner.ensureRunning();
         droppedExplosionRecords = 0;
         droppedPlans = 0;
+        droppedDueToBudget = 0;
         lastFilterRefreshTick = -1L;
+        lastRunTick = -1L;
+        totalRuns = 0;
+        totalErrors = 0;
+        lastErrorMessage = "";
+        debugStats.clear();
     }
 
     public void shutdownForServerStop() {
@@ -64,7 +70,7 @@ public final class ExplosionFixCoordinator {
     }
 
     public void onExplosion(ExplosionEvent.Detonate event) {
-        if (!RBPFConfig.ENABLED.get()) {
+        if (!RBPFConfig.MOD_ENABLED.get() || !RBPFConfig.EXPLOSION_ENABLED.get()) {
             return;
         }
         if (!(event.getLevel() instanceof ServerLevel level)) {
@@ -107,10 +113,13 @@ public final class ExplosionFixCoordinator {
         if (delayedRecords.size() >= RBPFConfig.MAX_QUEUED_EXPLOSION_RECORDS.get()) {
             delayedRecords.remove(0);
             droppedExplosionRecords++;
+            debugStats.increment("droppedDueToQueueLimit");
         }
         delayedRecords.add(record);
+        debugStats.increment("explosionsDetected");
+        debugStats.increment("scansQueued");
 
-        if (RBPFConfig.DEBUG_LOGGING.get()) {
+        if (RBPFConfig.isDebugLoggingEnabled()) {
             RealisticBlockPhysicsFixer.LOGGER.info(
                     "[{}] Explosion queued: dim={}, affected={}, copied={}, dueTick={}",
                     RealisticBlockPhysicsFixer.MOD_ID,
@@ -122,23 +131,23 @@ public final class ExplosionFixCoordinator {
         }
     }
 
-    public void onServerTick() {
-        if (!RBPFConfig.ENABLED.get()) {
+    public void onServerTick(MinecraftServer server) {
+        if (!RBPFConfig.MOD_ENABLED.get() || !RBPFConfig.EXPLOSION_ENABLED.get()) {
             return;
         }
-
-        MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
         if (server == null) {
             return;
         }
 
         long now = server.overworld().getGameTime();
+        lastRunTick = now;
+        totalRuns++;
         refreshFiltersOccasionally(now);
         recentUpdates.cleanup(now);
 
         collectFinishedPlanningJobs(server, now);
         startDuePlanningJobs(server, now);
-        processActiveScans(server, now);
+        processExplosionScanners(server, now);
     }
 
     private static Optional<Vec3> getExplosionCenter(Explosion explosion) {
@@ -166,7 +175,7 @@ public final class ExplosionFixCoordinator {
 
     private void refreshFiltersOccasionally(long now) {
         if (lastFilterRefreshTick < 0 || now - lastFilterRefreshTick >= 20) {
-            BlockFilters.refreshFromConfig();
+            BlockIdUtil.refreshFromConfig();
             lastFilterRefreshTick = now;
         }
     }
@@ -186,13 +195,15 @@ public final class ExplosionFixCoordinator {
 
                 if (activeScans.size() >= RBPFConfig.MAX_ACTIVE_SCANS.get()) {
                     droppedPlans++;
-                    if (RBPFConfig.DEBUG_LOGGING.get()) {
+                    debugStats.increment("droppedDueToQueueLimit");
+                    if (RBPFConfig.isDebugLoggingEnabled()) {
                         RealisticBlockPhysicsFixer.LOGGER.warn(
-                                "[{}] Dropping completed scan plan because maxActiveScans was reached. droppedPlans={}",
+                                "[{}] Dropping completed scan plan because maxExplosionScanners was reached. droppedPlans={}",
                                 RealisticBlockPhysicsFixer.MOD_ID,
                                 droppedPlans
                         );
                     }
+                    debugStats.increment("droppedDueToQueueLimit");
                     return true;
                 }
 
@@ -201,9 +212,9 @@ public final class ExplosionFixCoordinator {
                     return true;
                 }
 
-                ActiveScan activeScan = new ActiveScan(plan, now);
+                ExplosionScanner activeScan = new ExplosionScanner(plan, now);
                 if (activeScan.shouldSkipBecauseOfFallingBlockGuard(level)) {
-                    if (RBPFConfig.DEBUG_LOGGING.get()) {
+                    if (RBPFConfig.isDebugLoggingEnabled()) {
                         RealisticBlockPhysicsFixer.LOGGER.info(
                                 "[{}] Skipped scan because FallingBlock soft guard was reached at {}.",
                                 RealisticBlockPhysicsFixer.MOD_ID,
@@ -214,7 +225,7 @@ public final class ExplosionFixCoordinator {
                 }
 
                 activeScans.add(activeScan);
-                if (RBPFConfig.DEBUG_LOGGING.get()) {
+                if (RBPFConfig.isDebugLoggingEnabled()) {
                     RealisticBlockPhysicsFixer.LOGGER.info(
                             "[{}] Scan plan activated: dim={}, candidates={}, radius={}, large={}",
                             RealisticBlockPhysicsFixer.MOD_ID,
@@ -225,6 +236,7 @@ public final class ExplosionFixCoordinator {
                     );
                 }
             } catch (Throwable throwable) {
+                recordError(throwable);
                 RealisticBlockPhysicsFixer.LOGGER.error("[{}] Failed to activate scan plan.", RealisticBlockPhysicsFixer.MOD_ID, throwable);
             }
             return true;
@@ -364,19 +376,19 @@ public final class ExplosionFixCoordinator {
         );
     }
 
-    private void processActiveScans(MinecraftServer server, long now) {
+    private void processExplosionScanners(MinecraftServer server, long now) {
         int checksBudget = RBPFConfig.MAX_BLOCK_CHECKS_PER_TICK.get();
         int updatesBudget = RBPFConfig.MAX_BLOCK_UPDATES_PER_TICK.get();
         int scansToVisit = Math.min(activeScans.size(), RBPFConfig.MAX_SCANS_PER_TICK.get());
 
         for (int i = 0; i < scansToVisit && checksBudget > 0 && updatesBudget > 0; i++) {
-            ActiveScan scan = activeScans.pollFirst();
+            ExplosionScanner scan = activeScans.pollFirst();
             if (scan == null) {
                 return;
             }
 
             if (now - scan.activatedTick() > RBPFConfig.MAX_SCAN_AGE_TICKS.get()) {
-                if (RBPFConfig.DEBUG_LOGGING.get()) {
+                if (RBPFConfig.isDebugLoggingEnabled()) {
                     RealisticBlockPhysicsFixer.LOGGER.warn("[{}] Dropping stale scan in {} after {} ticks.", RealisticBlockPhysicsFixer.MOD_ID, scan.dimension().location(), now - scan.activatedTick());
                 }
                 continue;
@@ -387,10 +399,11 @@ public final class ExplosionFixCoordinator {
                 continue;
             }
 
-            ActiveScan.TickResult result;
+            ExplosionScanner.TickResult result;
             try {
                 result = scan.process(level, recentUpdates, now, checksBudget, updatesBudget);
             } catch (Throwable throwable) {
+                recordError(throwable);
                 RealisticBlockPhysicsFixer.LOGGER.error(
                         "[{}] Scan crashed and was aborted to keep the server running.",
                         RealisticBlockPhysicsFixer.MOD_ID,
@@ -401,10 +414,19 @@ public final class ExplosionFixCoordinator {
 
             checksBudget -= result.checksUsed();
             updatesBudget -= result.updatesUsed();
+            debugStats.add("positionsChecked", result.checksUsed());
+            debugStats.add("updatesTriggered", result.updatesUsed());
 
             if (!scan.isFinished()) {
                 activeScans.addLast(scan);
-            } else if (RBPFConfig.DEBUG_LOGGING.get() && RBPFConfig.SUMMARY_LOGGING.get()) {
+                debugStats.add("skippedUnloadedChunks", scan.skippedUnloadedCount());
+                debugStats.add("droppedDueToBudget", scan.droppedPendingUpdateCount());
+            } else {
+                debugStats.increment("scansCompleted");
+                debugStats.add("skippedUnloadedChunks", scan.skippedUnloadedCount());
+                debugStats.add("droppedDueToBudget", scan.droppedPendingUpdateCount());
+            }
+            if (scan.isFinished() && RBPFConfig.isDebugLoggingEnabled() && RBPFConfig.SUMMARY_LOGGING.get()) {
                 RealisticBlockPhysicsFixer.LOGGER.info(
                         "[{}] Scan done: dim={}, candidates={}, checked={}, suspicious={}, updated={}, skippedUnloaded={}, skippedDuplicate={}, droppedPending={}",
                         RealisticBlockPhysicsFixer.MOD_ID,
@@ -420,4 +442,23 @@ public final class ExplosionFixCoordinator {
             }
         }
     }
+
+    public void incrementDroppedDueToBudget() {
+        droppedDueToBudget++;
+        debugStats.increment("droppedDueToBudget");
+    }
+
+    public int queuedWork() {
+        return delayedRecords.size() + planningJobs.size() + activeScans.size();
+    }
+
+    public ModuleStats stats(String moduleId, boolean enabled) {
+        return new ModuleStats(moduleId, enabled, queuedWork(), lastRunTick, totalRuns, totalErrors, lastErrorMessage, debugStats.snapshot());
+    }
+
+    private void recordError(Throwable throwable) {
+        totalErrors++;
+        lastErrorMessage = throwable.getClass().getSimpleName() + ": " + String.valueOf(throwable.getMessage());
+    }
 }
+

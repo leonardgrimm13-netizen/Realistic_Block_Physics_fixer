@@ -1,78 +1,157 @@
 # Realistic Block Physics Fixer
 
-Server-side Forge 1.20.1 helper for modpacks where explosions can leave unsupported blocks floating until a player manually hits them. The mod does **not** simulate clicks and does **not** implement physics; it waits a few ticks after Forge explosion events, scans loaded chunks around affected blocks, and nudges Minecraft block/neighbor updates so Realistic Block Physics or similar mods can re-evaluate the world naturally.
+Realistic Block Physics Fixer (RBPF) is a **server-side Minecraft Forge 1.20.1 mod** that provides a small, budgeted platform for compatibility and safety fixes around physics-like block behavior.
 
-## What it does
+The project is now structured as a modular fix platform. The currently implemented module is the **Explosion Physics Update Fix**.
 
-- Listens to Forge `ExplosionEvent.Detonate` on the server.
-- Copies affected block coordinates immediately and delays scanning by `delayTicks` (default: `2`).
-- Merges near-in-time explosion work per dimension and deduplicates candidate positions.
-- Checks only loaded chunks by default and respects build-height bounds.
-- Ignores block entities and fluid targets by default.
-- Uses blacklist/whitelist filtering and per-tick budgets to stay server-friendly.
-- Calls normal block/neighbor update APIs; it never destroys blocks, spawns FallingBlocks, or changes explosion strength.
-- Runs without a hard dependency on Realistic Block Physics and logs an optional informational warning if no known mod id is present.
+## Current implemented fix
 
-## What it does not do
+### `explosion_physics_update_fix`
 
-- Replace or modify explosions.
-- Bypass claims, permissions, or protection mods.
-- Load chunks.
-- Touch `ServerLevel`, `BlockState`, chunks, block entities, or other Minecraft world objects off-thread.
-- Fake left-click/player interaction.
-- Spawn entities or implement a physics engine.
+After `ExplosionEvent.Detonate`, the module queues a delayed server-thread scan around the explosion center and copied affected block positions. Suspicious blocks are nudged with normal block and neighbor updates so Realistic Block Physics can re-evaluate them.
+
+The fix intentionally does **not**:
+
+- implement its own block physics,
+- spawn FallingBlock entities,
+- destroy blocks,
+- manipulate fluids directly,
+- simulate fake player left-clicks,
+- load chunks,
+- access Minecraft world objects asynchronously.
+
+## Platform architecture
+
+The code is split into focused packages:
+
+- `core/` - module API, registry, tick/event scheduler, budgets, rate-limited logging.
+- `config/` - global and module-ready Forge server config.
+- `command/` - `/rbpf` admin commands.
+- `debug/` - module stats and counters.
+- `fixes/explosion/` - current explosion update module implementation.
+- `fixes/template/` - disabled documentation-only example for future modules.
+- `util/` - general helpers for chunk safety, positions, block ids, and thread checks.
+
+Future fixes such as snow collision fixes, falling block update fixes, neighbor update fixes, modded explosion compatibility, or chunk-boundary safety fixes can be added as separate `FixModule` implementations.
+
+## Requirements
+
+- Minecraft Forge **1.20.1**
+- Java **17**
+- Gradle Wrapper **8.8**
+- ForgeGradle **6.x**
 
 ## Installation
 
-Install the JAR on the Forge 1.20.1 server. Client installation is normally unnecessary for this server-side helper, but some launchers/modpack policies may still require matching mod lists.
+1. Build or download the mod jar.
+2. Put the jar in the server `mods/` directory.
+3. Restart the server.
+4. Configure `config/realistic_block_physics_fixer-server.toml` after the first run.
 
-Server config path:
+The mod is designed for server-side behavior. Installing it on a dedicated server is the intended use case.
+
+## Configuration
+
+Config path:
 
 ```text
-world/serverconfig/realistic_block_physics_fixer-server.toml
+config/realistic_block_physics_fixer-server.toml
 ```
 
-## Build
+The config was reorganized into these categories:
 
-Use the Gradle 8 wrapper entrypoint:
+- `general`
+- `debug`
+- `performance`
+- `modules.explosion`
+
+Important keys include:
+
+- `general.modEnabled`
+- `general.commandEnabled`
+- `debug.debugLogging`
+- `debug.rateLimitWarnings`
+- `debug.logLoadedModules`
+- `performance.maxGlobalWorkPerTick`
+- `modules.explosion.enabled`
+- `modules.explosion.delayTicks`
+- `modules.explosion.scanRadius`
+- `modules.explosion.maxCheckedBlocksPerExplosion`
+- `modules.explosion.maxUpdatesPerExplosion`
+- `modules.explosion.maxScansPerTick`
+- `modules.explosion.maxPositionsCheckedPerTick`
+- `modules.explosion.maxUpdatesPerTick`
+- `modules.explosion.onlyLoadedChunks`
+- `modules.explosion.ignoreBlockEntities`
+- `modules.explosion.ignoreFluids`
+- `modules.explosion.blacklistMode`
+- `modules.explosion.blockBlacklist`
+- `modules.explosion.blockWhitelist`
+
+Some legacy keys from older config categories were renamed during the modularization. If upgrading from an older generated TOML, compare it with a freshly generated file and migrate values into `modules.explosion`.
+
+## Commands
+
+Commands require admin permission level 2 or higher:
+
+- `/rbpf status` - shows global state, modules, queue sizes, and error counters.
+- `/rbpf modules` - lists all registered fix modules and whether they are enabled.
+- `/rbpf debug on` - enables runtime debug logging until restart or reload.
+- `/rbpf debug off` - disables runtime debug logging until restart or reload.
+- `/rbpf explosion stats` - shows explosion module counters.
+
+Runtime debug commands do not write the Forge config file.
+
+## Performance and thread-safety rules
+
+RBPF follows these rules:
+
+- no chunk loading,
+- no async world access,
+- no entity spam,
+- no player-action simulation,
+- all `ServerLevel`, `Level`, `BlockState`, `BlockEntity`, chunk checks, and block updates stay on the server thread,
+- each module must respect per-tick budgets,
+- overload is handled by deferring or dropping work instead of freezing the server,
+- repeated warnings are rate-limited.
+
+Async work is only used for immutable coordinate-list planning. It must never read or write Minecraft world objects.
+
+## Adding new fix modules
+
+See [`docs/ADDING_FIX_MODULES.md`](docs/ADDING_FIX_MODULES.md). In short:
+
+1. Create `fixes/<name>/<Name>FixModule.java`.
+2. Implement `FixModule`.
+3. Add config in `RBPFConfig`.
+4. Register the module in `RealisticBlockPhysicsFixer`.
+5. Use central scheduler callbacks or explicit module-owned Forge event wiring.
+6. Respect budgets and server-thread-only rules.
+7. Expose `ModuleStats`.
+8. Document tests.
+
+## Build
 
 ```bash
 ./gradlew clean build
 ```
 
-The output JAR is written to:
+The repository includes the real Gradle Wrapper files:
 
-```text
-build/libs/Realistic_Block_Physics_fixer-<version>.jar
-```
+- `gradlew`
+- `gradlew.bat`
+- `gradle/wrapper/gradle-wrapper.properties`
+- `gradle/wrapper/gradle-wrapper.jar`
 
-ForgeGradle 6.x is not Gradle-9-ready. Do not build this project with Gradle 9; use the checked-in `./gradlew` entrypoint or another Gradle 8.x installation. The wrapper JAR is a maintainer-generated binary; if it is missing, regenerate it with `gradle wrapper --gradle-version 8.8 --distribution-type bin`, then use `./gradlew clean build`.
+`.gitignore` ignores build output but explicitly keeps `gradle-wrapper.jar`.
 
-## Important config values
+## CI
 
-- `enabled=true`
-- `warnIfRealisticBlockPhysicsMissing=true`
-- `asyncPlanningEnabled=true`
-- `delayTicks=2` (range 1-10)
-- `smallScanRadius=5` (range 2-12)
-- `maxBlockChecksPerScan=3000`
-- `maxBlockUpdatesPerScan=1500`
-- `maxQueuedScans=30`
-- `maxScansPerTick=4`
-- `maxPositionsCheckedPerTick=6000`
-- `maxUpdatesPerTick=1000`
-- `maxScanAgeTicks=200`
-- `onlyLoadedChunks=true`
-- `ignoreBlockEntities=true`
-- `ignoreFluids=true`
-- `blacklistMode=true`
+GitHub Actions runs `./gradlew clean build --no-daemon` on Java 17 and validates the wrapper.
 
-For weapon-heavy packs (SuperbWarfare, TaCZ addons, large TNT chains), keep `delayTicks=2`, increase scan radius only cautiously, and prefer raising per-tick budgets gradually while watching MSPT with Spark.
+## Troubleshooting
 
-## Known limits
-
-This mod only nudges updates. Whether a block actually falls depends on Minecraft, Forge, and the installed physics mod. If another mod suppresses Forge explosion events or modifies terrain after the scan window, a manual rescan/restart may still be needed.
-
-## Manual test plan
-
-See [`docs/TESTING.md`](docs/TESTING.md) for TNT, chain explosion, weapon-mod, block-entity, chunk-boundary, and stress-test scenarios.
+- If the wrapper cannot download Gradle 8.8, check network/proxy access to `services.gradle.org`.
+- If Forge/Minecraft dependencies cannot resolve, check access to Forge, Maven Central, and Minecraft library repositories.
+- Do not require SDKMAN for normal users; the wrapper is the supported path.
+- If Gradle 9 warnings appear, keep using Gradle Wrapper 8.8 for ForgeGradle 6.x compatibility.

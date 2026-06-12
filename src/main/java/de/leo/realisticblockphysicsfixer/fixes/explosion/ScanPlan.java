@@ -1,19 +1,16 @@
-package de.leo.realisticblockphysicsfixer.scan;
+package de.leo.realisticblockphysicsfixer.fixes.explosion;
 
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.Level;
 
 import java.util.List;
 
-public record PlanRequest(
+public record ScanPlan(
         ResourceKey<Level> dimension,
         long center,
-        List<Long> seeds,
+        List<Long> candidates,
         int scanRadius,
-        int maxCandidates,
         int maxUpdates,
-        int minBuildHeight,
-        int maxBuildHeight,
         boolean largeProfile
 ) {
 }
