@@ -2,9 +2,9 @@
 
 Realistic Block Physics Fixer (RBPF) is a **server-side Minecraft Forge 1.20.1 mod** that provides a small, budgeted platform for compatibility and safety fixes around physics-like block behavior.
 
-The project is now structured as a modular fix platform. The currently implemented module is the **Explosion Physics Update Fix**.
+The project is now structured as a modular fix platform. The currently implemented production modules are the **Explosion Physics Update Fix** and the **Falling Block Entity Guard**.
 
-## Current implemented fix
+## Current implemented fixes
 
 ### `explosion_physics_update_fix`
 
@@ -20,6 +20,13 @@ The fix intentionally does **not**:
 - load chunks,
 - access Minecraft world objects asynchronously.
 
+
+### `falling_block_entity_guard`
+
+RBP's own falling-block entity has a hard internal lifetime. On laggy servers or during large collapses this can make active physics blocks disappear before they land. The guard module monitors RBP falling-block entities server-side without importing RBP classes directly. It can reset the private lifetime counter for safe, loaded, airborne entities and logs when a level exceeds configurable soft limits.
+
+The guard intentionally does **not** use client classes, does **not** load chunks, and does **not** discard entities by default. A last-resort emergency discard option exists for crash prevention but is disabled unless the server owner explicitly enables it.
+
 ## Platform architecture
 
 The code is split into focused packages:
@@ -28,7 +35,8 @@ The code is split into focused packages:
 - `config/` - global and module-ready Forge server config.
 - `command/` - `/rbpf` admin commands.
 - `debug/` - module stats and counters.
-- `fixes/explosion/` - current explosion update module implementation.
+- `fixes/explosion/` - explosion update module implementation.
+- `fixes/entityguard/` - RBP falling-block lifetime and overload guard.
 - `fixes/template/` - disabled documentation-only example for future modules.
 - `util/` - general helpers for chunk safety, positions, block ids, and thread checks.
 
@@ -64,6 +72,7 @@ The config was reorganized into these categories:
 - `debug`
 - `performance`
 - `modules.explosion`
+- `modules.fallingBlockEntityGuard`
 
 Important keys include:
 
@@ -87,6 +96,15 @@ Important keys include:
 - `modules.explosion.blacklistMode`
 - `modules.explosion.blockBlacklist`
 - `modules.explosion.blockWhitelist`
+- `modules.fallingBlockEntityGuard.enabled`
+- `modules.fallingBlockEntityGuard.scanIntervalTicks`
+- `modules.fallingBlockEntityGuard.maxEntitiesScannedPerLevel`
+- `modules.fallingBlockEntityGuard.softLimitPerLevel`
+- `modules.fallingBlockEntityGuard.hardLimitPerLevel`
+- `modules.fallingBlockEntityGuard.emergencyDiscardAboveHardLimit`
+- `modules.fallingBlockEntityGuard.keepAliveEnabled`
+- `modules.fallingBlockEntityGuard.keepAliveResetAtTicks`
+- `modules.fallingBlockEntityGuard.keepAliveResetToTicks`
 
 Some legacy keys from older config categories were renamed during the modularization. If upgrading from an older generated TOML, compare it with a freshly generated file and migrate values into `modules.explosion`.
 
@@ -99,6 +117,7 @@ Commands require admin permission level 2 or higher:
 - `/rbpf debug on` - enables runtime debug logging until restart or reload.
 - `/rbpf debug off` - disables runtime debug logging until restart or reload.
 - `/rbpf explosion stats` - shows explosion module counters.
+- `/rbpf fallingblocks stats` - shows falling-block guard counters.
 
 Runtime debug commands do not write the Forge config file.
 

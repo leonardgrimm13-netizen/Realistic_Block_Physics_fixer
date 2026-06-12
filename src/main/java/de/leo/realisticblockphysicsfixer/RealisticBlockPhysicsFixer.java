@@ -6,6 +6,7 @@ import de.leo.realisticblockphysicsfixer.core.FixContext;
 import de.leo.realisticblockphysicsfixer.core.FixModuleRegistry;
 import de.leo.realisticblockphysicsfixer.core.RateLimitedLogger;
 import de.leo.realisticblockphysicsfixer.core.ServerTickScheduler;
+import de.leo.realisticblockphysicsfixer.fixes.entityguard.FallingBlockEntityGuardFixModule;
 import de.leo.realisticblockphysicsfixer.fixes.explosion.ExplosionPhysicsUpdateFixModule;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.fml.ModList;
@@ -40,10 +41,12 @@ public final class RealisticBlockPhysicsFixer {
 
     private static void registerModules(FixModuleRegistry registry) {
         registry.register(new ExplosionPhysicsUpdateFixModule());
+        registry.register(new FallingBlockEntityGuardFixModule());
     }
 
     private static void warnIfRealisticBlockPhysicsIsNotDetected() {
-        boolean detected = ModList.get().isLoaded("realisticblockphysics")
+        boolean detected = ModList.get().isLoaded("rbp")
+                || ModList.get().isLoaded("realisticblockphysics")
                 || ModList.get().isLoaded("realistic_block_physics")
                 || ModList.get().isLoaded("realisticphysics")
                 || ModList.get().isLoaded("realistic_physics");
