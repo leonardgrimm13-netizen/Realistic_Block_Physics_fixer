@@ -147,7 +147,7 @@ Unter `modules.fallingBlockEntityGuard`:
 
 ### Dedicated-Server-Starttest und Artifact
 
-Die GitHub-Action `Build and dedicated server smoke test` baut den Mod mit Java 17, prüft die Mixin-Konfiguration im Jar, startet einen Forge Dedicated-Server-Dev-Run ohne RBP und lädt die gebaute Jar-Datei als Artifact hoch. RBP bleibt absichtlich optional, damit RBPF auch auf Servern ohne RBP nicht crasht.
+Die GitHub-Action `Build and dedicated server smoke test` baut den Mod mit Java 17, prüft die Mixin-Konfiguration im Jar/Manifest, lädt die gebaute Jar-Datei bereits vor dem Smoke-Test als Artifact hoch, startet danach einen Forge Dedicated-Server-Dev-Run ohne RBP und wartet auf RBPF-Startup plus den vanilla `Done`-Ready-Marker. RBP bleibt absichtlich optional, damit RBPF auch auf Servern ohne RBP nicht crasht. Die Mixin-Config wird im Jar geprüft, weil Mixin den Confignamen je nach Forge/Mixin-Logging nicht zuverlässig im Serverlog ausgibt.
 
 Lokaler RBP-Test:
 
@@ -155,7 +155,7 @@ Lokaler RBP-Test:
 2. RBPF-Jar und RBP-Jar nach `run/mods/` kopieren.
 3. `echo eula=true > run/eula.txt`
 4. `./gradlew runServer --no-daemon -Dmixin.debug.verbose=true`
-5. Log prüfen: RBPF-Startup, `realistic_block_physics_fixer.mixins.json`, kein Crash.
+5. Log prüfen: RBPF-Startup, vanilla `Done`-Ready-Marker, kein Crash. Die Mixin-Config selbst im gebauten Jar/Manifest prüfen, falls sie nicht im Serverlog erscheint.
 
 ### Mixin-Kompatibilitätsprüfung
 

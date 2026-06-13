@@ -120,6 +120,7 @@ Commands require admin permission level 2 or higher:
 - `/rbpf debug off` - disables runtime debug logging until restart or reload.
 - `/rbpf explosion stats` - shows explosion module counters.
 - `/rbpf fallingblocks stats` - shows falling-block guard counters.
+- `/rbpf fallingblocks health` - summarizes guard health as OK/WARNING/BROKEN with reflection, mixin, keep-alive, discard, and last-error details.
 
 Runtime debug commands do not write the Forge config file.
 
@@ -194,8 +195,8 @@ GitHub Actions runs `Build and dedicated server smoke test` for pushes and pull 
 1. builds the Forge 1.20.1 jar with Java 17,
 2. verifies the jar contains `realistic_block_physics_fixer.mixins.json` and the manifest `MixinConfigs` entry,
 3. starts a Forge dedicated server dev run with the Fixer mod and `eula=true`,
-4. checks the server log for the RBPF startup line and the mixin config name,
-5. uploads the built jar as the `realistic-block-physics-fixer-jar` artifact.
+4. checks the server log for the RBPF startup line and the vanilla `Done` server-ready marker,
+5. uploads the built jar as the `realistic-block-physics-fixer-jar` artifact before the smoke test, so the jar is still downloadable when only the smoke test fails.
 
 This CI smoke test intentionally does not bundle Realistic Block Physics, because RBP is not declared as a hard dependency of RBPF. To test with a real RBP jar locally:
 
@@ -208,7 +209,7 @@ echo eula=true > run/eula.txt
 ./gradlew runServer --no-daemon -Dmixin.debug.verbose=true
 ```
 
-A healthy local boot should show the RBPF startup log, should not crash during mod loading, and should mention `realistic_block_physics_fixer.mixins.json` when Mixin verbose logging is enabled.
+A healthy local boot should show the RBPF startup log, reach the vanilla `Done` server-ready marker, and not crash during mod loading. The CI verifies the mixin config from the built jar/manifest because Mixin does not consistently print config names to the server log on every Forge setup.
 
 ### Falling-block stress test checklist
 

@@ -33,28 +33,61 @@ jobs:
           jar tf "$JAR" | grep -F 'realistic_block_physics_fixer.mixins.json'
           unzip -p "$JAR" META-INF/MANIFEST.MF | grep -F 'MixinConfigs: realistic_block_physics_fixer.mixins.json'
 
-      - name: Dedicated server boot smoke test
-        run: |
-          set -euo pipefail
-          mkdir -p run
-          echo 'eula=true' > run/eula.txt
-          set +e
-          timeout 120s ./gradlew runServer --no-daemon -Dmixin.debug.verbose=true 2>&1 | tee server-smoke.log
-          EXIT_CODE=${PIPESTATUS[0]}
-          set -e
-          if [ "$EXIT_CODE" -ne 0 ] && [ "$EXIT_CODE" -ne 124 ]; then
-            exit "$EXIT_CODE"
-          fi
-          grep -F 'realistic_block_physics_fixer loaded for Forge 1.20.1' server-smoke.log
-          grep -F 'realistic_block_physics_fixer.mixins.json' server-smoke.log
-          ! grep -Ei 'Crash report|Encountered an unexpected exception|Failed to start the minecraft server|Failed to start the server' server-smoke.log
-
       - name: Upload built jar
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: realistic-block-physics-fixer-jar
           path: build/libs/*.jar
           if-no-files-found: error
+
+      - name: Dedicated server boot smoke test
+        run: |
+          set -euo pipefail
+          mkdir -p run
+          echo 'eula=true' > run/eula.txt
+          : > server-smoke.log
+
+          setsid ./gradlew runServer --no-daemon -Dmixin.debug.verbose=true > server-smoke.log 2>&1 &
+          SERVER_PID=$!
+
+          cleanup() {
+            if kill -0 "$SERVER_PID" 2>/dev/null; then
+              kill -TERM -- "-$SERVER_PID" 2>/dev/null || true
+              sleep 5
+              kill -KILL -- "-$SERVER_PID" 2>/dev/null || true
+            fi
+          }
+          trap cleanup EXIT
+
+          BOOTED=0
+          for _ in $(seq 1 300); do
+            if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+              wait "$SERVER_PID"
+              exit $?
+            fi
+
+            if grep -F 'realistic_block_physics_fixer loaded for Forge 1.20.1' server-smoke.log \
+                && grep -E 'Done \([0-9.]+s\)! For help, type "help"' server-smoke.log; then
+              BOOTED=1
+              break
+            fi
+
+            if grep -Ei 'Crash report|Encountered an unexpected exception|Failed to start the minecraft server|Failed to start the server|Mod loading has failed' server-smoke.log; then
+              cat server-smoke.log
+              exit 1
+            fi
+
+            sleep 1
+          done
+
+          if [ "$BOOTED" -ne 1 ]; then
+            echo 'Server did not reach the RBPF startup + Minecraft Done markers within 300 seconds.'
+            cat server-smoke.log
+            exit 1
+          fi
+
+          ! grep -Ei 'Crash report|Encountered an unexpected exception|Failed to start the minecraft server|Failed to start the server|Mod loading has failed' server-smoke.log
 
       - name: Upload server smoke log
         if: always()
