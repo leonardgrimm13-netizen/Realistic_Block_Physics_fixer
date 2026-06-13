@@ -1,9 +1,9 @@
 {
   "required": false,
   "minVersion": "0.8",
-  "package": "de.KrasserStecher12.realisticblockphysicsfixer.mixin",
+  "package": "de.krasserstecher12.realisticblockphysicsfixer.mixin",
   "compatibilityLevel": "JAVA_17",
-  "plugin": "de.KrasserStecher12.realisticblockphysicsfixer.fixes.entityguard.RBPFMixinPlugin",
+  "plugin": "de.krasserstecher12.realisticblockphysicsfixer.fixes.entityguard.RBPFMixinPlugin",
   "mixins": [
     "RealisticFallingBlockEntityMixin"
   ],
