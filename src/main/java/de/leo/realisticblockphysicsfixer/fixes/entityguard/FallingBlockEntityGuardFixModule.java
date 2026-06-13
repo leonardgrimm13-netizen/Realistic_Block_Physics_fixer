@@ -251,6 +251,9 @@ public final class FallingBlockEntityGuardFixModule implements FixModule {
         snapshot.put("mixinKeepAliveResets", FallingBlockGuardSupport.mixinKeepAliveResets());
         snapshot.put("mixinSkippedUnsafePosition", FallingBlockGuardSupport.mixinSkippedUnsafePosition());
         snapshot.put("reflectionFailures", FallingBlockGuardSupport.reflectionFailures());
+        if (FallingBlockGuardSupport.isReflectionAvailable()) {
+            snapshot.put("reflectionAvailable", 1L);
+        }
         if (FallingBlockGuardSupport.isReflectionUnavailable()) {
             snapshot.put("reflectionUnavailable", 1L);
         }

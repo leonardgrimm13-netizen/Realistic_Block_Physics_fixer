@@ -184,3 +184,54 @@ GitHub Actions runs `./gradlew clean build --no-daemon` on Java 17 and validates
 - If Forge/Minecraft dependencies cannot resolve, check access to Forge, Maven Central, and Minecraft library repositories.
 - Do not require SDKMAN for normal users; the wrapper is the supported path.
 - If Gradle 9 warnings appear, keep using Gradle Wrapper 8.8 for ForgeGradle 6.x compatibility.
+
+## Production validation for PR #4
+
+### CI build artifact and dedicated-server smoke test
+
+GitHub Actions runs `Build and dedicated server smoke test` for pushes and pull requests. The job:
+
+1. builds the Forge 1.20.1 jar with Java 17,
+2. verifies the jar contains `realistic_block_physics_fixer.mixins.json` and the manifest `MixinConfigs` entry,
+3. starts a Forge dedicated server dev run with the Fixer mod and `eula=true`,
+4. checks the server log for the RBPF startup line and the mixin config name,
+5. uploads the built jar as the `realistic-block-physics-fixer-jar` artifact.
+
+This CI smoke test intentionally does not bundle Realistic Block Physics, because RBP is not declared as a hard dependency of RBPF. To test with a real RBP jar locally:
+
+```bash
+./gradlew build
+mkdir -p run/mods
+cp build/libs/realistic_block_physics_fixer-*.jar run/mods/ 2>/dev/null || cp build/libs/Realistic_Block_Physics_fixer-*.jar run/mods/
+cp /path/to/realistic-block-physics.jar run/mods/
+echo eula=true > run/eula.txt
+./gradlew runServer --no-daemon -Dmixin.debug.verbose=true
+```
+
+A healthy local boot should show the RBPF startup log, should not crash during mod loading, and should mention `realistic_block_physics_fixer.mixins.json` when Mixin verbose logging is enabled.
+
+### Falling-block stress test checklist
+
+1. Start a dedicated test server with Forge 1.20.1, RBP, and RBPF.
+2. Run `/rbpf debug on` for the short test window.
+3. Create normal RBP falling blocks with sand/gravel columns, then trigger a larger controlled explosion in a disposable area.
+4. Run `/rbpf fallingblocks stats` and `/rbpf fallingblocks health`.
+5. Good signs:
+   - `health` reports `OK`, or `WARNING - fallTime reflection not proven yet` before any RBP falling entity has been seen.
+   - `mixinKeepAliveResets` or `keptAlive` increases after long-running airborne RBP blocks.
+   - `reflectionFailures=0` and no `reflectionUnavailable=1`.
+   - `emergencyDiscarded=0` with the default config.
+6. Warning/error signs:
+   - `reflectionUnavailable=1` or `health` reports `BROKEN`: verify the installed RBP jar/version. Update RBPF/RBP if the private field changed, or intentionally disable `modules.fallingBlockEntityGuard.keepAliveEnabled` if you accept vanilla RBP lifetime behavior.
+   - `scanVisitLimitReached` increases often: the fallback scan is hitting `maxEntitiesVisitedPerLevel`; inspect entity counts/TPS before raising it.
+   - `emergencyDiscarded` increases: emergency discard was explicitly enabled and the hard limit was exceeded; use only as crash prevention.
+
+### Falling-block guard default rationale
+
+- `keepAliveResetAtTicks=560`: leaves a 40 tick buffer before RBP's hard `fallTime > 600` discard. With `mixinKeepAliveEnabled=true`, the check runs at the start of every RBP falling-block tick, so laggy server ticks still clamp before RBP's own discard branch executes.
+- `keepAliveResetToTicks=120`: avoids repeatedly resetting every tick while still preserving enough age history to avoid treating every entity as brand new.
+- `maxEntitiesVisitedPerLevel=4000`: hard cap for the fallback scan to prevent full-world entity walks on large servers.
+- `maxEntitiesScannedPerLevel=512`: bounds reflection/tracking work per scan; the mixin path handles the time-critical keep-alive case.
+- `softLimitPerLevel=350`: warns early that large collapses may be stressing the server.
+- `hardLimitPerLevel=1200`: only used by the explicit emergency-discard mode.
+- `emergencyDiscardAboveHardLimit=false`: no aggressive discards by default; server owners must opt in when preventing a crash is more important than preserving every physics entity.

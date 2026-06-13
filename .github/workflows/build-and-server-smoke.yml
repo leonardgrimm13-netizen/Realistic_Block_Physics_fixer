@@ -1,0 +1,65 @@
+name: Build and dedicated server smoke test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Validate Gradle wrapper
+        uses: gradle/actions/wrapper-validation@v4
+
+      - name: Build mod jar
+        run: ./gradlew build --no-daemon
+
+      - name: Verify mixin config is packaged
+        run: |
+          set -euo pipefail
+          JAR="$(find build/libs -maxdepth 1 -name '*.jar' ! -name '*-sources.jar' | head -n 1)"
+          test -n "$JAR"
+          jar tf "$JAR" | grep -F 'realistic_block_physics_fixer.mixins.json'
+          unzip -p "$JAR" META-INF/MANIFEST.MF | grep -F 'MixinConfigs: realistic_block_physics_fixer.mixins.json'
+
+      - name: Dedicated server boot smoke test
+        run: |
+          set -euo pipefail
+          mkdir -p run
+          echo 'eula=true' > run/eula.txt
+          set +e
+          timeout 120s ./gradlew runServer --no-daemon -Dmixin.debug.verbose=true 2>&1 | tee server-smoke.log
+          EXIT_CODE=${PIPESTATUS[0]}
+          set -e
+          if [ "$EXIT_CODE" -ne 0 ] && [ "$EXIT_CODE" -ne 124 ]; then
+            exit "$EXIT_CODE"
+          fi
+          grep -F 'realistic_block_physics_fixer loaded for Forge 1.20.1' server-smoke.log
+          grep -F 'realistic_block_physics_fixer.mixins.json' server-smoke.log
+          ! grep -Ei 'Crash report|Encountered an unexpected exception|Failed to start the minecraft server|Failed to start the server' server-smoke.log
+
+      - name: Upload built jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: realistic-block-physics-fixer-jar
+          path: build/libs/*.jar
+          if-no-files-found: error
+
+      - name: Upload server smoke log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dedicated-server-smoke-log
+          path: server-smoke.log
+          if-no-files-found: ignore

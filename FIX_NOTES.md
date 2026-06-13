@@ -142,3 +142,35 @@ Unter `modules.fallingBlockEntityGuard`:
 - BlockEntity-NBT-Probleme im Originalmod werden reduziert, aber nicht vollständig gepatcht.
 - Sehr große Explosionen können weiterhin Last erzeugen, wenn RBP selbst bereits viele Operationen queued, bevor der Fixer nachsteuert.
 - Das optionale Emergency-Discard sollte nur genutzt werden, wenn Crash-Vermeidung wichtiger ist als das vollständige Erhalten jedes Physics-Blocks.
+
+## Produktionshärtung PR #4
+
+### Dedicated-Server-Starttest und Artifact
+
+Die GitHub-Action `Build and dedicated server smoke test` baut den Mod mit Java 17, prüft die Mixin-Konfiguration im Jar, startet einen Forge Dedicated-Server-Dev-Run ohne RBP und lädt die gebaute Jar-Datei als Artifact hoch. RBP bleibt absichtlich optional, damit RBPF auch auf Servern ohne RBP nicht crasht.
+
+Lokaler RBP-Test:
+
+1. `./gradlew build`
+2. RBPF-Jar und RBP-Jar nach `run/mods/` kopieren.
+3. `echo eula=true > run/eula.txt`
+4. `./gradlew runServer --no-daemon -Dmixin.debug.verbose=true`
+5. Log prüfen: RBPF-Startup, `realistic_block_physics_fixer.mixins.json`, kein Crash.
+
+### Mixin-Kompatibilitätsprüfung
+
+Der Mixin-Plugin-Zeitpunkt liegt früh in der Forge/Mixin-Initialisierung. Normales `ModList.get()` ist dort nicht garantiert verfügbar. Deshalb prüft `RBPFMixinPlugin` zuerst reflektiv Forge `LoadingModList` gegen bekannte RBP-Mod-IDs und fällt danach auf einen nicht-initialisierenden Zielklassen-Check zurück. Wenn RBP fehlt, anders heißt oder die Zielklasse entfernt wurde, ist die Mixin-Config `required=false` und der Mixin wird übersprungen statt den Server zu crashen.
+
+### Reflection-Diagnose
+
+`FallingBlockGuardSupport` unterscheidet `available`, `unavailable` und `unknown_until_rbp_entity_seen`. `/rbpf fallingblocks health` zeigt den Status, Mixin-Resets, Scan-Keep-Alives, Emergency-Discards und den letzten Fehler. Wenn `fallTime` nicht gefunden oder nicht gesetzt werden kann, wird eine klare Warnung mit Handlungsempfehlung geloggt und `health` meldet `BROKEN`, solange Keep-Alive aktiv ist.
+
+### Produktions-Defaults
+
+- `keepAliveResetAtTicks=560`: 40 Ticks Sicherheitsabstand zum RBP-Discard bei `fallTime > 600`; mit aktivem Mixin wird direkt vor RBPs Tick-Logik gekappt.
+- `keepAliveResetToTicks=120`: reduziert Reset-Spam und hält die Entity weit genug vom Discard entfernt.
+- `maxEntitiesVisitedPerLevel=4000`: verhindert unbegrenzte Fallback-Scans auf großen Servern.
+- `maxEntitiesScannedPerLevel=512`: begrenzt Tracking/Reflection-Arbeit; der Mixin übernimmt den zeitkritischen Pfad.
+- `softLimitPerLevel=350`: frühe Warnung bei großen Collapses.
+- `hardLimitPerLevel=1200`: hohe Schwelle nur für explizit aktiviertes Emergency-Discard.
+- `emergencyDiscardAboveHardLimit=false`: keine aggressiven Discards im Default.

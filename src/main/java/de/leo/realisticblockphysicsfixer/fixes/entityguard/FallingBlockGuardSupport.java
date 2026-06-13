@@ -89,8 +89,22 @@ public final class FallingBlockGuardSupport {
         return REFLECTION_FAILURES.get();
     }
 
+    public static boolean isReflectionAvailable() {
+        return fallTimeField != null && !fallTimeReflectionUnavailable;
+    }
+
     public static boolean isReflectionUnavailable() {
         return fallTimeReflectionUnavailable;
+    }
+
+    public static String reflectionStatus() {
+        if (isReflectionAvailable()) {
+            return "available";
+        }
+        if (fallTimeReflectionUnavailable) {
+            return "unavailable";
+        }
+        return "unknown_until_rbp_entity_seen";
     }
 
     private static boolean isSafeLoadedServerPosition(ServerLevel level, BlockPos pos) {
@@ -160,13 +174,15 @@ public final class FallingBlockGuardSupport {
         if (REFLECTION_WARNING_LOGGED.compareAndSet(false, true)) {
             if (throwable == null) {
                 RealisticBlockPhysicsFixer.LOGGER.warn(
-                        "[{}] Could not find RBP falling block field '{}'; lifetime keep-alive is disabled for this RBP version.",
+                        "[{}] Could not find RBP falling block field '{}'; lifetime keep-alive is disabled for this RBP version. "
+                                + "Action: verify the installed Realistic Block Physics version, then run /rbpf fallingblocks health and either update RBPF/RBP or disable fallingBlockEntityGuard.keepAliveEnabled if intentional.",
                         RealisticBlockPhysicsFixer.MOD_ID,
                         FALL_TIME_FIELD
                 );
             } else {
                 RealisticBlockPhysicsFixer.LOGGER.warn(
-                        "[{}] Could not access RBP falling block field '{}'; lifetime keep-alive is disabled for this RBP version: {}",
+                        "[{}] Could not access RBP falling block field '{}'; lifetime keep-alive is disabled for this RBP version: {}. "
+                                + "Action: verify the installed Realistic Block Physics version, then run /rbpf fallingblocks health and either update RBPF/RBP or disable fallingBlockEntityGuard.keepAliveEnabled if intentional.",
                         RealisticBlockPhysicsFixer.MOD_ID,
                         FALL_TIME_FIELD,
                         throwable.toString()
