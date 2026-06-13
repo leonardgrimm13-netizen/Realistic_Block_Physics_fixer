@@ -103,7 +103,10 @@ Neu hinzugefügt:
 - respektiert globale und modulinterne Budgets,
 - warnt bei zu vielen RBP-Falling-Block-Entities pro Level,
 - kann den `fallTime`-Zähler sicher zurücksetzen, bevor RBP aktive Blöcke hart entfernt,
+- nutzt zusätzlich einen optionalen Mixin-Hook am Anfang von `RealisticFallingBlockEntity#tick`, damit der Zähler vor RBP's eigenem `fallTime > 600`-Discard gekappt wird,
+- zählt Keep-Alive nur dann als erfolgreich, wenn das private Feld wirklich gefunden und gesetzt wurde,
 - überspringt unsichere Positionen, ungeladene Chunks, gelandete oder entfernte Entities,
+- bricht den Fallback-Entity-Scan nach `maxEntitiesVisitedPerLevel` hart ab, weil Forge ohne RBP-Abhängigkeit keinen globalen RBP-Entity-Index bereitstellt,
 - bietet optionalen, standardmäßig deaktivierten Emergency-Discard als letzte Crash-Sicherung.
 
 ## Neue Config-Werte
@@ -113,18 +116,28 @@ Unter `modules.fallingBlockEntityGuard`:
 - `enabled`
 - `scanIntervalTicks`
 - `maxEntitiesScannedPerLevel`
+- `maxEntitiesVisitedPerLevel`
 - `softLimitPerLevel`
 - `hardLimitPerLevel`
 - `emergencyDiscardAboveHardLimit`
 - `keepAliveEnabled`
+- `mixinKeepAliveEnabled`
 - `keepAliveResetAtTicks`
 - `keepAliveResetToTicks`
 - `stuckKeepAliveAfterTicks`
 - `trackingTtlTicks`
 
+## Test-/Check-Punkte im Spiel
+
+1. Server mit RBP und RBPF starten und eine kontrollierte größere Sand-/Kies- oder Explosionssituation erzeugen.
+2. `/rbpf fallingblocks stats` ausführen. Erwartet werden Zähler wie `seen`, `visited`, `keptAlive` und bei aktivem Mixin `mixinKeepAliveResets`.
+3. Mit `debug.debugLogging=true` oder `/rbpf debug on` sollten Keep-Alive-Resets als Debug-Zeilen erscheinen, zum Beispiel mit Quelle `mixin` oder `scan` und dem alten/neuen `fallTime`.
+4. Wenn `reflectionUnavailable=1` oder `keepAliveReflectionUnavailable` steigt, wurde das private `fallTime`-Feld nicht gefunden/gesetzt; dann zählt der Guard keine falschen Keep-Alive-Erfolge und die RBP-Version muss separat geprüft werden.
+5. Wenn `scanVisitLimitReached` steigt, wurde der harte Entity-Visit-Abbruch erreicht. Dann `maxEntitiesVisitedPerLevel` nur erhöhen, wenn die Server-TPS stabil bleibt.
+
 ## Offene Risiken
 
-- Ohne Mixin kann der Fixer nicht verhindern, dass RBP direkt in seinem eigenen Entity-Tick vor einem Guard-Scan discarded.
+- Wenn der optionale Mixin-Hook deaktiviert ist oder wegen einer geänderten RBP-Zielklasse nicht angewendet werden kann, bleibt nur der fallback Tick-Scan; dann kann RBP in Extremfällen vor dem nächsten Scan discardet haben.
 - Die privaten Feldnamen von RBP können sich ändern. Dann deaktiviert sich die Keep-Alive-Funktion per Warnung statt zu crashen.
 - BlockEntity-NBT-Probleme im Originalmod werden reduziert, aber nicht vollständig gepatcht.
 - Sehr große Explosionen können weiterhin Last erzeugen, wenn RBP selbst bereits viele Operationen queued, bevor der Fixer nachsteuert.

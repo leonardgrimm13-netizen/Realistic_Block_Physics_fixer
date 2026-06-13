@@ -23,9 +23,9 @@ The fix intentionally does **not**:
 
 ### `falling_block_entity_guard`
 
-RBP's own falling-block entity has a hard internal lifetime. On laggy servers or during large collapses this can make active physics blocks disappear before they land. The guard module monitors RBP falling-block entities server-side without importing RBP classes directly. It can reset the private lifetime counter for safe, loaded, airborne entities and logs when a level exceeds configurable soft limits.
+RBP's own falling-block entity has a hard internal lifetime. On laggy servers or during large collapses this can make active physics blocks disappear before they land. The guard module monitors RBP falling-block entities server-side without importing RBP classes directly. It can reset the private lifetime counter for safe, loaded, airborne entities and logs when a level exceeds configurable soft limits. A small optional mixin runs at the start of RBP's falling-block `tick()` so the counter is clamped before RBP can execute its own hard discard.
 
-The guard intentionally does **not** use client classes, does **not** load chunks, and does **not** discard entities by default. A last-resort emergency discard option exists for crash prevention but is disabled unless the server owner explicitly enables it.
+The guard intentionally does **not** use client classes, does **not** load chunks, and does **not** discard entities by default. Its fallback scan has a hard `maxEntitiesVisitedPerLevel` cap because Forge does not expose a global RBP-only entity iterator without linking against RBP. A last-resort emergency discard option exists for crash prevention but is disabled unless the server owner explicitly enables it.
 
 ## Platform architecture
 
@@ -99,10 +99,12 @@ Important keys include:
 - `modules.fallingBlockEntityGuard.enabled`
 - `modules.fallingBlockEntityGuard.scanIntervalTicks`
 - `modules.fallingBlockEntityGuard.maxEntitiesScannedPerLevel`
+- `modules.fallingBlockEntityGuard.maxEntitiesVisitedPerLevel`
 - `modules.fallingBlockEntityGuard.softLimitPerLevel`
 - `modules.fallingBlockEntityGuard.hardLimitPerLevel`
 - `modules.fallingBlockEntityGuard.emergencyDiscardAboveHardLimit`
 - `modules.fallingBlockEntityGuard.keepAliveEnabled`
+- `modules.fallingBlockEntityGuard.mixinKeepAliveEnabled`
 - `modules.fallingBlockEntityGuard.keepAliveResetAtTicks`
 - `modules.fallingBlockEntityGuard.keepAliveResetToTicks`
 
@@ -120,6 +122,14 @@ Commands require admin permission level 2 or higher:
 - `/rbpf fallingblocks stats` - shows falling-block guard counters.
 
 Runtime debug commands do not write the Forge config file.
+
+### In-game guard check
+
+1. Start a dedicated/server-integrated test world with RBP and RBPF installed.
+2. Trigger falling physics with sand/gravel or a controlled explosion.
+3. Run `/rbpf fallingblocks stats`. Useful counters are `seen`, `visited`, `keptAlive`, `mixinKeepAliveResets`, `reflectionFailures`, and `scanVisitLimitReached`.
+4. Enable `/rbpf debug on` for a short test window if you need per-reset debug lines. A working keep-alive path logs whether `mixin` or the fallback `scan` reset `fallTime` and shows the old and new values.
+5. If `reflectionUnavailable=1` or `reflectionFailures` increases, the RBP private field name changed or could not be accessed; the guard will not report false keep-alive success in that state.
 
 ## Performance and thread-safety rules
 

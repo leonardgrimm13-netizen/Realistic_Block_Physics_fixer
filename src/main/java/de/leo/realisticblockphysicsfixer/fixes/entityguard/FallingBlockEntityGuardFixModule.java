@@ -7,7 +7,6 @@ import de.leo.realisticblockphysicsfixer.core.FixContext;
 import de.leo.realisticblockphysicsfixer.core.FixModule;
 import de.leo.realisticblockphysicsfixer.debug.DebugStats;
 import de.leo.realisticblockphysicsfixer.debug.ModuleStats;
-import de.leo.realisticblockphysicsfixer.util.ChunkSafety;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
@@ -16,7 +15,6 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.registries.ForgeRegistries;
 
-import java.lang.reflect.Field;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
@@ -32,16 +30,10 @@ import java.util.UUID;
 public final class FallingBlockEntityGuardFixModule implements FixModule {
     public static final String MODULE_ID = "falling_block_entity_guard";
 
-    private static final String RBP_ENTITY_ID = "rbp:falling_block";
-    private static final String RBP_ENTITY_CLASS = "xbigellx.rbp.internal.entity.RealisticFallingBlockEntity";
-    private static final String FALL_TIME_FIELD = "fallTime";
-
     private final DebugStats debugStats = new DebugStats();
     private final Map<UUID, TrackedEntity> trackedEntities = new HashMap<>();
 
     private FixContext context;
-    private Field fallTimeField;
-    private boolean fallTimeReflectionFailed;
     private long lastRunTick = -1L;
     private long totalRuns;
     private long totalErrors;
@@ -86,6 +78,7 @@ public final class FallingBlockEntityGuardFixModule implements FixModule {
         int globalSeen = 0;
         int globalKeptAlive = 0;
         int globalEmergencyDiscarded = 0;
+        int globalVisited = 0;
 
         try {
             for (ServerLevel level : server.getAllLevels()) {
@@ -93,6 +86,7 @@ public final class FallingBlockEntityGuardFixModule implements FixModule {
                 globalSeen += result.seen();
                 globalKeptAlive += result.keptAlive();
                 globalEmergencyDiscarded += result.emergencyDiscarded();
+                globalVisited += result.visited();
                 if (budget.remainingGlobalWork() <= 0) {
                     debugStats.increment("budgetExhausted");
                     break;
@@ -108,6 +102,9 @@ public final class FallingBlockEntityGuardFixModule implements FixModule {
             );
         }
 
+        if (globalVisited > 0) {
+            debugStats.add("visited", globalVisited);
+        }
         if (globalSeen > 0) {
             debugStats.add("seen", globalSeen);
         }
@@ -119,20 +116,28 @@ public final class FallingBlockEntityGuardFixModule implements FixModule {
         }
     }
 
-    private ScanResult scanLevel(ServerLevel level, BudgetManager budget, long now) throws ReflectiveOperationException {
+    private ScanResult scanLevel(ServerLevel level, BudgetManager budget, long now) {
         if (level == null) {
             return ScanResult.EMPTY;
         }
 
+        int maxVisited = RBPFConfig.FALLING_BLOCK_GUARD_MAX_ENTITIES_VISITED_PER_LEVEL.get();
         int maxProcessed = RBPFConfig.FALLING_BLOCK_GUARD_MAX_ENTITIES_SCANNED_PER_LEVEL.get();
         int softLimit = RBPFConfig.FALLING_BLOCK_GUARD_SOFT_LIMIT_PER_LEVEL.get();
         int hardLimit = RBPFConfig.FALLING_BLOCK_GUARD_HARD_LIMIT_PER_LEVEL.get();
+        int visited = 0;
         int seen = 0;
         int processed = 0;
         int keptAlive = 0;
         int emergencyDiscarded = 0;
 
         for (Entity entity : level.getAllEntities()) {
+            visited++;
+            if (visited > maxVisited) {
+                debugStats.increment("scanVisitLimitReached");
+                break;
+            }
+
             if (!isRealisticFallingBlock(entity)) {
                 continue;
             }
@@ -143,7 +148,7 @@ public final class FallingBlockEntityGuardFixModule implements FixModule {
             }
             processed++;
 
-            TrackDecision decision = trackAndMaybeKeepAlive(level, entity, now);
+            TrackDecision decision = trackAndMaybeKeepAlive(entity, now);
             if (decision == TrackDecision.KEPT_ALIVE) {
                 keptAlive++;
             }
@@ -168,10 +173,10 @@ public final class FallingBlockEntityGuardFixModule implements FixModule {
             );
         }
 
-        return new ScanResult(seen, keptAlive, emergencyDiscarded);
+        return new ScanResult(visited, seen, keptAlive, emergencyDiscarded);
     }
 
-    private TrackDecision trackAndMaybeKeepAlive(ServerLevel level, Entity entity, long now) throws ReflectiveOperationException {
+    private TrackDecision trackAndMaybeKeepAlive(Entity entity, long now) {
         UUID uuid = entity.getUUID();
         BlockPos pos = entity.blockPosition();
         Vec3 delta = entity.getDeltaMovement();
@@ -181,38 +186,16 @@ public final class FallingBlockEntityGuardFixModule implements FixModule {
                 : previous.stillTicks() + Math.max(1, RBPFConfig.FALLING_BLOCK_GUARD_SCAN_INTERVAL_TICKS.get());
         trackedEntities.put(uuid, new TrackedEntity(pos.immutable(), now, stillTicks));
 
-        if (!RBPFConfig.FALLING_BLOCK_GUARD_KEEP_ALIVE_ENABLED.get()) {
-            return TrackDecision.NONE;
+        FallingBlockGuardSupport.KeepAliveResult result = FallingBlockGuardSupport.keepAliveIfNeeded(entity, stillTicks, "scan");
+        if (result == FallingBlockGuardSupport.KeepAliveResult.RESET) {
+            return TrackDecision.KEPT_ALIVE;
         }
-        if (entity.onGround() || entity.isRemoved()) {
-            return TrackDecision.NONE;
-        }
-        if (!isInsideWorld(level, pos) || !ChunkSafety.isLoaded(level, pos)) {
+        if (result == FallingBlockGuardSupport.KeepAliveResult.REFLECTION_UNAVAILABLE) {
+            debugStats.increment("keepAliveReflectionUnavailable");
+        } else if (result == FallingBlockGuardSupport.KeepAliveResult.UNSAFE_POSITION) {
             debugStats.increment("keepAliveSkippedUnsafePosition");
-            return TrackDecision.NONE;
         }
-
-        int fallTime = getFallTime(entity);
-        int resetAt = RBPFConfig.FALLING_BLOCK_GUARD_KEEP_ALIVE_RESET_AT_TICKS.get();
-        if (fallTime < resetAt && stillTicks < RBPFConfig.FALLING_BLOCK_GUARD_STUCK_KEEP_ALIVE_AFTER_TICKS.get()) {
-            return TrackDecision.NONE;
-        }
-
-        int resetTo = Math.min(RBPFConfig.FALLING_BLOCK_GUARD_KEEP_ALIVE_RESET_TO_TICKS.get(), Math.max(0, resetAt - 1));
-        setFallTime(entity, resetTo);
-        if (RBPFConfig.isDebugLoggingEnabled()) {
-            RealisticBlockPhysicsFixer.LOGGER.debug(
-                    "[{}] Extended lifetime of RBP falling block {} at {} in {} (fallTime {} -> {}, stillTicks={}).",
-                    RealisticBlockPhysicsFixer.MOD_ID,
-                    uuid,
-                    pos,
-                    level.dimension().location(),
-                    fallTime,
-                    resetTo,
-                    stillTicks
-            );
-        }
-        return TrackDecision.KEPT_ALIVE;
+        return TrackDecision.NONE;
     }
 
     private static boolean isRealisticFallingBlock(Entity entity) {
@@ -220,58 +203,14 @@ public final class FallingBlockEntityGuardFixModule implements FixModule {
             return false;
         }
         ResourceLocation id = ForgeRegistries.ENTITY_TYPES.getKey(entity.getType());
-        if (id != null && RBP_ENTITY_ID.equals(id.toString())) {
+        if (id != null && FallingBlockGuardSupport.RBP_ENTITY_ID.equals(id.toString())) {
             return true;
         }
-        return RBP_ENTITY_CLASS.equals(entity.getClass().getName());
-    }
-
-    private static boolean isInsideWorld(ServerLevel level, BlockPos pos) {
-        return pos.getY() >= level.getMinBuildHeight() && pos.getY() < level.getMaxBuildHeight();
+        return FallingBlockGuardSupport.RBP_ENTITY_CLASS.equals(entity.getClass().getName());
     }
 
     private static boolean isSafeEmergencyDiscardCandidate(Entity entity) {
         return !entity.isPassenger() && !entity.isVehicle() && !entity.onGround();
-    }
-
-    private int getFallTime(Entity entity) throws ReflectiveOperationException {
-        Field field = resolveFallTimeField(entity);
-        if (field == null) {
-            return Integer.MIN_VALUE;
-        }
-        return field.getInt(entity);
-    }
-
-    private void setFallTime(Entity entity, int value) throws ReflectiveOperationException {
-        Field field = resolveFallTimeField(entity);
-        if (field != null) {
-            field.setInt(entity, value);
-        }
-    }
-
-    private Field resolveFallTimeField(Entity entity) throws NoSuchFieldException {
-        if (fallTimeField != null || fallTimeReflectionFailed) {
-            return fallTimeField;
-        }
-        Class<?> current = entity.getClass();
-        while (current != null && current != Entity.class) {
-            try {
-                Field field = current.getDeclaredField(FALL_TIME_FIELD);
-                field.setAccessible(true);
-                fallTimeField = field;
-                return field;
-            } catch (NoSuchFieldException ignored) {
-                current = current.getSuperclass();
-            }
-        }
-        fallTimeReflectionFailed = true;
-        context.rateLimitedLogger().warn(
-                MODULE_ID + ".reflection",
-                "[{}] Could not find RBP falling block field '{}'; lifetime keep-alive is disabled for this RBP version.",
-                RealisticBlockPhysicsFixer.MOD_ID,
-                FALL_TIME_FIELD
-        );
-        return null;
     }
 
     private void pruneOldTracking(long now) {
@@ -301,8 +240,19 @@ public final class FallingBlockEntityGuardFixModule implements FixModule {
                 totalRuns,
                 totalErrors,
                 lastErrorMessage,
-                debugStats.snapshot()
+                statsSnapshot()
         );
+    }
+
+    private Map<String, Long> statsSnapshot() {
+        Map<String, Long> snapshot = new HashMap<>(debugStats.snapshot());
+        snapshot.put("mixinKeepAliveResets", FallingBlockGuardSupport.mixinKeepAliveResets());
+        snapshot.put("mixinSkippedUnsafePosition", FallingBlockGuardSupport.mixinSkippedUnsafePosition());
+        snapshot.put("reflectionFailures", FallingBlockGuardSupport.reflectionFailures());
+        if (FallingBlockGuardSupport.isReflectionUnavailable()) {
+            snapshot.put("reflectionUnavailable", 1L);
+        }
+        return Map.copyOf(snapshot);
     }
 
     @Override
@@ -313,8 +263,8 @@ public final class FallingBlockEntityGuardFixModule implements FixModule {
     private record TrackedEntity(BlockPos position, long lastSeenTick, int stillTicks) {
     }
 
-    private record ScanResult(int seen, int keptAlive, int emergencyDiscarded) {
-        private static final ScanResult EMPTY = new ScanResult(0, 0, 0);
+    private record ScanResult(int visited, int seen, int keptAlive, int emergencyDiscarded) {
+        private static final ScanResult EMPTY = new ScanResult(0, 0, 0, 0);
     }
 
     private enum TrackDecision {

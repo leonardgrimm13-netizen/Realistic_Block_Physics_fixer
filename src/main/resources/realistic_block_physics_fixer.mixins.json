@@ -1,0 +1,13 @@
+{
+  "required": false,
+  "minVersion": "0.8",
+  "package": "de.leo.realisticblockphysicsfixer.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "plugin": "de.leo.realisticblockphysicsfixer.fixes.entityguard.RBPFMixinPlugin",
+  "mixins": [
+    "RealisticFallingBlockEntityMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 0
+  }
+}
