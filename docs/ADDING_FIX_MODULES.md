@@ -5,7 +5,7 @@
 Create a new package under:
 
 ```text
-src/main/java/de/leo/realisticblockphysicsfixer/fixes/<name>/
+src/main/java/de/KrasserStecher12/realisticblockphysicsfixer/fixes/<name>/
 ```
 
 Example:
