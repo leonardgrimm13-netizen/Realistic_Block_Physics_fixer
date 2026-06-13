@@ -2,9 +2,9 @@
 
 Realistic Block Physics Fixer (RBPF) is a **server-side Minecraft Forge 1.20.1 mod** that provides a small, budgeted platform for compatibility and safety fixes around physics-like block behavior.
 
-The project is now structured as a modular fix platform. The currently implemented module is the **Explosion Physics Update Fix**.
+The project is now structured as a modular fix platform. The currently implemented production modules are the **Explosion Physics Update Fix** and the **Falling Block Entity Guard**.
 
-## Current implemented fix
+## Current implemented fixes
 
 ### `explosion_physics_update_fix`
 
@@ -20,6 +20,13 @@ The fix intentionally does **not**:
 - load chunks,
 - access Minecraft world objects asynchronously.
 
+
+### `falling_block_entity_guard`
+
+RBP's own falling-block entity has a hard internal lifetime. On laggy servers or during large collapses this can make active physics blocks disappear before they land. The guard module monitors RBP falling-block entities server-side without importing RBP classes directly. It can reset the private lifetime counter for safe, loaded, airborne entities and logs when a level exceeds configurable soft limits. A small optional mixin runs at the start of RBP's falling-block `tick()` so the counter is clamped before RBP can execute its own hard discard.
+
+The guard intentionally does **not** use client classes, does **not** load chunks, and does **not** discard entities by default. Its fallback scan has a hard `maxEntitiesVisitedPerLevel` cap because Forge does not expose a global RBP-only entity iterator without linking against RBP. A last-resort emergency discard option exists for crash prevention but is disabled unless the server owner explicitly enables it.
+
 ## Platform architecture
 
 The code is split into focused packages:
@@ -28,7 +35,8 @@ The code is split into focused packages:
 - `config/` - global and module-ready Forge server config.
 - `command/` - `/rbpf` admin commands.
 - `debug/` - module stats and counters.
-- `fixes/explosion/` - current explosion update module implementation.
+- `fixes/explosion/` - explosion update module implementation.
+- `fixes/entityguard/` - RBP falling-block lifetime and overload guard.
 - `fixes/template/` - disabled documentation-only example for future modules.
 - `util/` - general helpers for chunk safety, positions, block ids, and thread checks.
 
@@ -64,6 +72,7 @@ The config was reorganized into these categories:
 - `debug`
 - `performance`
 - `modules.explosion`
+- `modules.fallingBlockEntityGuard`
 
 Important keys include:
 
@@ -87,6 +96,17 @@ Important keys include:
 - `modules.explosion.blacklistMode`
 - `modules.explosion.blockBlacklist`
 - `modules.explosion.blockWhitelist`
+- `modules.fallingBlockEntityGuard.enabled`
+- `modules.fallingBlockEntityGuard.scanIntervalTicks`
+- `modules.fallingBlockEntityGuard.maxEntitiesScannedPerLevel`
+- `modules.fallingBlockEntityGuard.maxEntitiesVisitedPerLevel`
+- `modules.fallingBlockEntityGuard.softLimitPerLevel`
+- `modules.fallingBlockEntityGuard.hardLimitPerLevel`
+- `modules.fallingBlockEntityGuard.emergencyDiscardAboveHardLimit`
+- `modules.fallingBlockEntityGuard.keepAliveEnabled`
+- `modules.fallingBlockEntityGuard.mixinKeepAliveEnabled`
+- `modules.fallingBlockEntityGuard.keepAliveResetAtTicks`
+- `modules.fallingBlockEntityGuard.keepAliveResetToTicks`
 
 Some legacy keys from older config categories were renamed during the modularization. If upgrading from an older generated TOML, compare it with a freshly generated file and migrate values into `modules.explosion`.
 
@@ -99,8 +119,18 @@ Commands require admin permission level 2 or higher:
 - `/rbpf debug on` - enables runtime debug logging until restart or reload.
 - `/rbpf debug off` - disables runtime debug logging until restart or reload.
 - `/rbpf explosion stats` - shows explosion module counters.
+- `/rbpf fallingblocks stats` - shows falling-block guard counters.
+- `/rbpf fallingblocks health` - summarizes guard health as OK/WARNING/BROKEN with reflection, mixin, keep-alive, discard, and last-error details.
 
 Runtime debug commands do not write the Forge config file.
+
+### In-game guard check
+
+1. Start a dedicated/server-integrated test world with RBP and RBPF installed.
+2. Trigger falling physics with sand/gravel or a controlled explosion.
+3. Run `/rbpf fallingblocks stats`. Useful counters are `seen`, `visited`, `keptAlive`, `mixinKeepAliveResets`, `reflectionFailures`, and `scanVisitLimitReached`.
+4. Enable `/rbpf debug on` for a short test window if you need per-reset debug lines. A working keep-alive path logs whether `mixin` or the fallback `scan` reset `fallTime` and shows the old and new values.
+5. If `reflectionUnavailable=1` or `reflectionFailures` increases, the RBP private field name changed or could not be accessed; the guard will not report false keep-alive success in that state.
 
 ## Performance and thread-safety rules
 
@@ -155,3 +185,54 @@ GitHub Actions runs `./gradlew clean build --no-daemon` on Java 17 and validates
 - If Forge/Minecraft dependencies cannot resolve, check access to Forge, Maven Central, and Minecraft library repositories.
 - Do not require SDKMAN for normal users; the wrapper is the supported path.
 - If Gradle 9 warnings appear, keep using Gradle Wrapper 8.8 for ForgeGradle 6.x compatibility.
+
+## Production validation for PR #4
+
+### CI build artifact and dedicated-server smoke test
+
+GitHub Actions runs `Build and dedicated server smoke test` for pushes and pull requests. The job:
+
+1. builds the Forge 1.20.1 jar with Java 17,
+2. verifies the jar contains `realistic_block_physics_fixer.mixins.json` and the manifest `MixinConfigs` entry,
+3. starts a Forge dedicated server dev run with the Fixer mod and `eula=true`,
+4. checks the server log for the RBPF startup line and the vanilla `Done` server-ready marker,
+5. uploads the built jar as the `realistic-block-physics-fixer-jar` artifact before the smoke test, so the jar is still downloadable when only the smoke test fails.
+
+This CI smoke test intentionally does not bundle Realistic Block Physics, because RBP is not declared as a hard dependency of RBPF. To test with a real RBP jar locally:
+
+```bash
+./gradlew build
+mkdir -p run/mods
+cp build/libs/realistic_block_physics_fixer-*.jar run/mods/ 2>/dev/null || cp build/libs/Realistic_Block_Physics_fixer-*.jar run/mods/
+cp /path/to/realistic-block-physics.jar run/mods/
+echo eula=true > run/eula.txt
+./gradlew runServer --no-daemon -Dmixin.debug.verbose=true
+```
+
+A healthy local boot should show the RBPF startup log, reach the vanilla `Done` server-ready marker, and not crash during mod loading. The CI verifies the mixin config from the built jar/manifest because Mixin does not consistently print config names to the server log on every Forge setup.
+
+### Falling-block stress test checklist
+
+1. Start a dedicated test server with Forge 1.20.1, RBP, and RBPF.
+2. Run `/rbpf debug on` for the short test window.
+3. Create normal RBP falling blocks with sand/gravel columns, then trigger a larger controlled explosion in a disposable area.
+4. Run `/rbpf fallingblocks stats` and `/rbpf fallingblocks health`.
+5. Good signs:
+   - `health` reports `OK`, or `WARNING - fallTime reflection not proven yet` before any RBP falling entity has been seen.
+   - `mixinKeepAliveResets` or `keptAlive` increases after long-running airborne RBP blocks.
+   - `reflectionFailures=0` and no `reflectionUnavailable=1`.
+   - `emergencyDiscarded=0` with the default config.
+6. Warning/error signs:
+   - `reflectionUnavailable=1` or `health` reports `BROKEN`: verify the installed RBP jar/version. Update RBPF/RBP if the private field changed, or intentionally disable `modules.fallingBlockEntityGuard.keepAliveEnabled` if you accept vanilla RBP lifetime behavior.
+   - `scanVisitLimitReached` increases often: the fallback scan is hitting `maxEntitiesVisitedPerLevel`; inspect entity counts/TPS before raising it.
+   - `emergencyDiscarded` increases: emergency discard was explicitly enabled and the hard limit was exceeded; use only as crash prevention.
+
+### Falling-block guard default rationale
+
+- `keepAliveResetAtTicks=560`: leaves a 40 tick buffer before RBP's hard `fallTime > 600` discard. With `mixinKeepAliveEnabled=true`, the check runs at the start of every RBP falling-block tick, so laggy server ticks still clamp before RBP's own discard branch executes.
+- `keepAliveResetToTicks=120`: avoids repeatedly resetting every tick while still preserving enough age history to avoid treating every entity as brand new.
+- `maxEntitiesVisitedPerLevel=4000`: hard cap for the fallback scan to prevent full-world entity walks on large servers.
+- `maxEntitiesScannedPerLevel=512`: bounds reflection/tracking work per scan; the mixin path handles the time-critical keep-alive case.
+- `softLimitPerLevel=350`: warns early that large collapses may be stressing the server.
+- `hardLimitPerLevel=1200`: only used by the explicit emergency-discard mode.
+- `emergencyDiscardAboveHardLimit=false`: no aggressive discards by default; server owners must opt in when preventing a crash is more important than preserving every physics entity.

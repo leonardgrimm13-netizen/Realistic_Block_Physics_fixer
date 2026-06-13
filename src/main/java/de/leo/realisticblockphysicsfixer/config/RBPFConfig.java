@@ -49,6 +49,20 @@ public final class RBPFConfig {
     public static final ForgeConfigSpec.IntValue FALLING_BLOCK_SOFT_LIMIT;
     public static final ForgeConfigSpec.BooleanValue SUMMARY_LOGGING;
 
+    public static final ForgeConfigSpec.BooleanValue FALLING_BLOCK_GUARD_ENABLED;
+    public static final ForgeConfigSpec.IntValue FALLING_BLOCK_GUARD_SCAN_INTERVAL_TICKS;
+    public static final ForgeConfigSpec.IntValue FALLING_BLOCK_GUARD_MAX_ENTITIES_SCANNED_PER_LEVEL;
+    public static final ForgeConfigSpec.IntValue FALLING_BLOCK_GUARD_MAX_ENTITIES_VISITED_PER_LEVEL;
+    public static final ForgeConfigSpec.IntValue FALLING_BLOCK_GUARD_SOFT_LIMIT_PER_LEVEL;
+    public static final ForgeConfigSpec.IntValue FALLING_BLOCK_GUARD_HARD_LIMIT_PER_LEVEL;
+    public static final ForgeConfigSpec.BooleanValue FALLING_BLOCK_GUARD_EMERGENCY_DISCARD_ABOVE_HARD_LIMIT;
+    public static final ForgeConfigSpec.BooleanValue FALLING_BLOCK_GUARD_KEEP_ALIVE_ENABLED;
+    public static final ForgeConfigSpec.BooleanValue FALLING_BLOCK_GUARD_MIXIN_KEEP_ALIVE_ENABLED;
+    public static final ForgeConfigSpec.IntValue FALLING_BLOCK_GUARD_KEEP_ALIVE_RESET_AT_TICKS;
+    public static final ForgeConfigSpec.IntValue FALLING_BLOCK_GUARD_KEEP_ALIVE_RESET_TO_TICKS;
+    public static final ForgeConfigSpec.IntValue FALLING_BLOCK_GUARD_STUCK_KEEP_ALIVE_AFTER_TICKS;
+    public static final ForgeConfigSpec.IntValue FALLING_BLOCK_GUARD_TRACKING_TTL_TICKS;
+
     public static final ForgeConfigSpec.BooleanValue ENABLED;
 
     private static volatile Boolean runtimeDebugLogging;
@@ -106,6 +120,22 @@ public final class RBPFConfig {
         SKIP_WHEN_TOO_MANY_FALLING_BLOCKS = builder.comment("Optional safety: skip a scan if many FallingBlock entities already exist near its center.").define("skipWhenTooManyFallingBlocks", false);
         FALLING_BLOCK_CHECK_RADIUS = builder.comment("Radius used by the optional FallingBlock soft guard.").defineInRange("fallingBlockCheckRadius", 32, 4, 128);
         FALLING_BLOCK_SOFT_LIMIT = builder.comment("Soft FallingBlock entity limit for the optional guard.").defineInRange("fallingBlockSoftLimit", 250, 1, 10000);
+        builder.pop().pop();
+
+        builder.comment("RBP Falling Block Entity Guard module.").push("modules").push("fallingBlockEntityGuard");
+        FALLING_BLOCK_GUARD_ENABLED = builder.comment("Enable server-side monitoring of RBP falling block entities without linking against RBP classes.").define("enabled", true);
+        FALLING_BLOCK_GUARD_SCAN_INTERVAL_TICKS = builder.comment("Ticks between fallback entity guard scans. The mixin keep-alive path runs before every RBP falling-block tick when enabled, so this scan is mainly for stats and overload warnings.").defineInRange("scanIntervalTicks", 10, 1, 200);
+        FALLING_BLOCK_GUARD_MAX_ENTITIES_SCANNED_PER_LEVEL = builder.comment("Max RBP falling block entities inspected per level per guard scan.").defineInRange("maxEntitiesScannedPerLevel", 512, 1, 20000);
+        FALLING_BLOCK_GUARD_MAX_ENTITIES_VISITED_PER_LEVEL = builder.comment("Hard cap for total entities visited per level per fallback scan. Prevents full-world entity walks on large servers when no RBP-specific entity index is available.").defineInRange("maxEntitiesVisitedPerLevel", 4000, 1, 200000);
+        FALLING_BLOCK_GUARD_SOFT_LIMIT_PER_LEVEL = builder.comment("Warn when a level has more RBP falling blocks than this soft limit.").defineInRange("softLimitPerLevel", 350, 1, 100000);
+        FALLING_BLOCK_GUARD_HARD_LIMIT_PER_LEVEL = builder.comment("Emergency hard limit. Only used when emergencyDiscardAboveHardLimit=true.").defineInRange("hardLimitPerLevel", 1200, 1, 100000);
+        FALLING_BLOCK_GUARD_EMERGENCY_DISCARD_ABOVE_HARD_LIMIT = builder.comment("Last-resort crash protection: discard extra airborne RBP falling blocks above the hard limit. Keep false unless the server is otherwise crashing.").define("emergencyDiscardAboveHardLimit", false);
+        FALLING_BLOCK_GUARD_KEEP_ALIVE_ENABLED = builder.comment("Reset RBP's private fallTime for safe, loaded, airborne physics blocks before the original 600 tick timeout discards them.").define("keepAliveEnabled", true);
+        FALLING_BLOCK_GUARD_MIXIN_KEEP_ALIVE_ENABLED = builder.comment("Use an optional defensive mixin at the start of RBP RealisticFallingBlockEntity#tick so fallTime is clamped before RBP can discard the entity. Disable only for troubleshooting.").define("mixinKeepAliveEnabled", true);
+        FALLING_BLOCK_GUARD_KEEP_ALIVE_RESET_AT_TICKS = builder.comment("When an airborne RBP falling block reaches at least this fallTime, reset it to keepAliveResetToTicks.").defineInRange("keepAliveResetAtTicks", 560, 20, 600);
+        FALLING_BLOCK_GUARD_KEEP_ALIVE_RESET_TO_TICKS = builder.comment("New fallTime value after a keep-alive reset.").defineInRange("keepAliveResetToTicks", 120, 0, 559);
+        FALLING_BLOCK_GUARD_STUCK_KEEP_ALIVE_AFTER_TICKS = builder.comment("Also keep alive airborne RBP falling blocks that have barely moved for this many ticks.").defineInRange("stuckKeepAliveAfterTicks", 200, 20, 6000);
+        FALLING_BLOCK_GUARD_TRACKING_TTL_TICKS = builder.comment("Remove unseen entities from the guard's tracking cache after this many ticks.").defineInRange("trackingTtlTicks", 1200, 200, 20000);
         builder.pop().pop();
 
         SPEC = builder.build();

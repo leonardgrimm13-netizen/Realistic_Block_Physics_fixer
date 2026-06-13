@@ -5,6 +5,8 @@ import de.leo.realisticblockphysicsfixer.config.RBPFConfig;
 import de.leo.realisticblockphysicsfixer.core.FixModule;
 import de.leo.realisticblockphysicsfixer.core.FixModuleRegistry;
 import de.leo.realisticblockphysicsfixer.debug.ModuleStats;
+import de.leo.realisticblockphysicsfixer.fixes.entityguard.FallingBlockEntityGuardFixModule;
+import de.leo.realisticblockphysicsfixer.fixes.entityguard.FallingBlockGuardSupport;
 import de.leo.realisticblockphysicsfixer.fixes.explosion.ExplosionPhysicsUpdateFixModule;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
@@ -24,7 +26,10 @@ public final class RBPFCommand {
                         .then(Commands.literal("on").executes(context -> setDebug(context.getSource(), true)))
                         .then(Commands.literal("off").executes(context -> setDebug(context.getSource(), false))))
                 .then(Commands.literal("explosion")
-                        .then(Commands.literal("stats").executes(context -> explosionStats(context.getSource(), registry)))));
+                        .then(Commands.literal("stats").executes(context -> explosionStats(context.getSource(), registry))))
+                .then(Commands.literal("fallingblocks")
+                        .then(Commands.literal("stats").executes(context -> fallingBlockStats(context.getSource(), registry)))
+                        .then(Commands.literal("health").executes(context -> fallingBlockHealth(context.getSource(), registry)))));
     }
 
     private static int status(CommandSourceStack source, FixModuleRegistry registry) {
@@ -68,6 +73,68 @@ public final class RBPFCommand {
             source.sendSuccess(() -> Component.literal("lastError=" + stats.lastErrorMessage()), false);
         }
         return stats.queuedWork();
+    }
+
+    private static int fallingBlockStats(CommandSourceStack source, FixModuleRegistry registry) {
+        ModuleStats stats = registry.find(FallingBlockEntityGuardFixModule.MODULE_ID)
+                .map(FixModule::stats)
+                .orElse(ModuleStats.empty(FallingBlockEntityGuardFixModule.MODULE_ID, false));
+        source.sendSuccess(() -> Component.literal("Falling block guard: enabled=" + stats.enabled() + ", tracked=" + stats.queuedWork()
+                + ", lastTick=" + stats.lastRunTick() + ", runs=" + stats.totalRuns() + ", errors=" + stats.totalErrors()), false);
+        for (Map.Entry<String, Long> entry : stats.debugCounters().entrySet()) {
+            source.sendSuccess(() -> Component.literal("- " + entry.getKey() + "=" + entry.getValue()), false);
+        }
+        if (!stats.lastErrorMessage().isBlank()) {
+            source.sendSuccess(() -> Component.literal("lastError=" + stats.lastErrorMessage()), false);
+        }
+        return stats.queuedWork();
+    }
+
+    private static int fallingBlockHealth(CommandSourceStack source, FixModuleRegistry registry) {
+        ModuleStats stats = registry.find(FallingBlockEntityGuardFixModule.MODULE_ID)
+                .map(FixModule::stats)
+                .orElse(ModuleStats.empty(FallingBlockEntityGuardFixModule.MODULE_ID, false));
+        Map<String, Long> counters = stats.debugCounters();
+        boolean guardEnabled = stats.enabled();
+        boolean keepAliveEnabled = RBPFConfig.FALLING_BLOCK_GUARD_KEEP_ALIVE_ENABLED.get();
+        boolean mixinEnabled = RBPFConfig.FALLING_BLOCK_GUARD_MIXIN_KEEP_ALIVE_ENABLED.get();
+        boolean reflectionAvailable = counters.getOrDefault("reflectionAvailable", 0L) > 0L;
+        boolean reflectionUnavailable = counters.getOrDefault("reflectionUnavailable", 0L) > 0L;
+        long mixinResets = counters.getOrDefault("mixinKeepAliveResets", 0L);
+        long scanKeepAlives = counters.getOrDefault("keptAlive", 0L);
+        long emergencyDiscards = counters.getOrDefault("emergencyDiscarded", 0L);
+        long reflectionFailures = counters.getOrDefault("reflectionFailures", 0L);
+
+        String verdict;
+        if (!guardEnabled) {
+            verdict = "WARNING - guard disabled";
+        } else if (keepAliveEnabled && reflectionUnavailable) {
+            verdict = "BROKEN - fallTime reflection unavailable; update/check RBP or disable keepAliveEnabled intentionally";
+        } else if (keepAliveEnabled && !reflectionAvailable && mixinResets == 0L && scanKeepAlives == 0L) {
+            verdict = "WARNING - fallTime reflection not proven yet; spawn/check RBP falling blocks";
+        } else {
+            verdict = "OK";
+        }
+
+        source.sendSuccess(() -> Component.literal("Falling block guard health: " + verdict), false);
+        source.sendSuccess(() -> Component.literal("- guardEnabled=" + guardEnabled
+                + ", keepAliveEnabled=" + keepAliveEnabled
+                + ", mixinKeepAliveEnabled=" + mixinEnabled), false);
+        source.sendSuccess(() -> Component.literal("- reflectionStatus=" + FallingBlockGuardSupport.reflectionStatus()
+                + ", reflectionFailures=" + reflectionFailures), false);
+        source.sendSuccess(() -> Component.literal("- mixinResets=" + mixinResets
+                + ", scanKeepAlives=" + scanKeepAlives
+                + ", emergencyDiscards=" + emergencyDiscards), false);
+        source.sendSuccess(() -> Component.literal("- tracked=" + stats.queuedWork()
+                + ", lastTick=" + stats.lastRunTick()
+                + ", errors=" + stats.totalErrors()), false);
+        if (!stats.lastErrorMessage().isBlank()) {
+            source.sendSuccess(() -> Component.literal("- lastError=" + stats.lastErrorMessage()), false);
+        }
+        if (keepAliveEnabled && reflectionUnavailable) {
+            source.sendSuccess(() -> Component.literal("Action: verify the installed Realistic Block Physics jar/version. If this is expected, disable modules.fallingBlockEntityGuard.keepAliveEnabled to silence the broken keep-alive state."), false);
+        }
+        return verdict.startsWith("BROKEN") ? 0 : 1;
     }
 
     private RBPFCommand() {
