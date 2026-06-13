@@ -143,6 +143,15 @@ public final class FallingBlockEntityGuardFixModule implements FixModule {
             }
 
             seen++;
+
+            if (RBPFConfig.FALLING_BLOCK_GUARD_EMERGENCY_DISCARD_ABOVE_HARD_LIMIT.get()
+                    && seen > hardLimit
+                    && isSafeEmergencyDiscardCandidate(entity)) {
+                entity.discard();
+                emergencyDiscarded++;
+                continue;
+            }
+
             if (processed >= maxProcessed || !budget.tryConsume(1)) {
                 continue;
             }
@@ -151,13 +160,6 @@ public final class FallingBlockEntityGuardFixModule implements FixModule {
             TrackDecision decision = trackAndMaybeKeepAlive(entity, now);
             if (decision == TrackDecision.KEPT_ALIVE) {
                 keptAlive++;
-            }
-
-            if (RBPFConfig.FALLING_BLOCK_GUARD_EMERGENCY_DISCARD_ABOVE_HARD_LIMIT.get()
-                    && seen > hardLimit
-                    && isSafeEmergencyDiscardCandidate(entity)) {
-                entity.discard();
-                emergencyDiscarded++;
             }
         }
 
